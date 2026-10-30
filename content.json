@@ -1,0 +1,62 @@
+{
+  "paintings": [
+    {
+      "id": "childhood-game",
+      "title": "Childhood Game",
+      "year": 2015,
+      "dimensions": "170 x 140 cm",
+      "medium": "Acrylic and Oil on canvas",
+      "image": "assets/paintings/childhood-game.jpg"
+    },
+    {
+      "id": "the-distance-between-two-souls",
+      "title": "The Distance between two souls",
+      "year": 2015,
+      "dimensions": "170 x 140 cm",
+      "medium": "Acrylic and Oil on canvas",
+      "image": "assets/paintings/the-distance-between-two-souls.jpg"
+    },
+    {
+      "id": "white-fish",
+      "title": "White Fish",
+      "year": 2017,
+      "dimensions": "80 x 80 cm",
+      "medium": "Acrylic on canvas",
+      "image": "assets/paintings/white-fish.jpg"
+    }
+  ],
+  "exhibitions": [
+    {
+      "id": "seven-spices",
+      "title": "Seven Spices",
+      "dates": "19 March – 25 April 2019",
+      "kind": "Collective exhibition",
+      "image": "assets/exhibitions/seven-spices.jpg",
+      "venue": "392Rmeil393"
+    },
+    {
+      "id": "white-in-greenwich-time",
+      "title": "White in Greenwich Time",
+      "dates": "3–17 October 2017",
+      "kind": "Exhibition",
+      "image": "assets/exhibitions/white-in-greenwich-time.jpg",
+      "venue": "392Rmeil393"
+    },
+    {
+      "id": "scene-from-a-distance",
+      "title": "Scene from a Distance",
+      "dates": "3–27 August 2016",
+      "kind": "Exhibition",
+      "image": "assets/exhibitions/scene-from-a-distance.jpg",
+      "venue": "392Rmeil393"
+    },
+    {
+      "id": "colorful-centimeters-1800-days",
+      "title": "Colorful Centimeters — 1800 Days…",
+      "dates": "22 March – 10 April 2016",
+      "kind": "Joint exhibition",
+      "image": "assets/exhibitions/colorful-centimeters-1800-days.jpg",
+      "venue": "392Rmeil393"
+    }
+  ]
+}

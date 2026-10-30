@@ -1,0 +1,12 @@
+:root{background:#080706;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden}
+main{position:relative;width:100%;height:100dvh;background:#080706}
+#name,#fish{position:absolute}
+#name{left:18vw;top:56dvh;width:min(36vw,105dvh)}
+#fish{left:66.5vw;top:63dvh;width:min(12.5vw,34dvh)}
+svg{display:block;width:100%;height:auto;overflow:visible}
+@media(max-aspect-ratio:1/1){
+ #name{left:12vw;top:57dvh;width:70vw}
+ #fish{left:58vw;top:49dvh;width:20vw}
+}
