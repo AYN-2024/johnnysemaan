@@ -16,22 +16,23 @@ export function buildWall(container, sketches, { seed = Date.now(), count = 3, o
   for (let i = 0; i < n; i++) {
     const item = pool[i % pool.length];
     const figure = document.createElement('figure'); figure.className = 'sheet';
-    const svg = document.createElementNS(SVG, 'svg'); svg.setAttribute('viewBox', '0 0 1057 1488'); svg.setAttribute('aria-hidden', 'true');
+    const iw = item.width || 1057, ih = item.height || 1488;
+    const svg = document.createElementNS(SVG, 'svg'); svg.setAttribute('viewBox', `0 0 ${iw} ${ih}`); svg.setAttribute('aria-hidden', 'true');
     const group = document.createElementNS(SVG, 'g'); group.setAttribute('opacity', '0');
     const image = document.createElementNS(SVG, 'image');
     image.setAttribute('href', item.image); image.setAttributeNS(XLINK, 'xlink:href', item.image);
-    image.setAttribute('width', '1057'); image.setAttribute('height', '1488'); image.setAttribute('filter', 'url(#graphite)');
+    image.setAttribute('width', String(iw)); image.setAttribute('height', String(ih)); image.setAttribute('filter', 'url(#graphite)');
     group.append(image); svg.append(group); figure.append(svg);
     if (onOpen) { figure.tabIndex = 0; figure.setAttribute('role', 'button'); figure.setAttribute('aria-label', item.title || 'Sketch');
       figure.addEventListener('click', () => onOpen(item)); figure.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(item); } }); }
     container.append(figure);
-    sheets.push({ figure, svg, group, item, tier: .72 + rng() * .16, jx: rng(), jy: rng(), tilt: (rng() * 2 - 1) * TILT, surfacing: createSurfacing(svg, group, { prefix: 'wall' + i }) });
+    sheets.push({ figure, svg, group, item, ratio: iw / ih, tier: .72 + rng() * .16, jx: rng(), jy: rng(), tilt: (rng() * 2 - 1) * TILT, surfacing: createSurfacing(svg, group, { prefix: 'wall' + i }) });
   }
   function layout() {
     const W = container.clientWidth, H = container.clientHeight, ph = matchMedia('(max-width: 720px)').matches;
     const cols = ph ? sheets.length : 1, rows = ph ? 1 : sheets.length, cellW = W / cols, cellH = H / rows;
     sheets.forEach((s, i) => {
-      let h = cellH * s.tier, w = h * RATIO; if (w > cellW * .9) { w = cellW * .9; h = w / RATIO; }
+      let h = cellH * s.tier, w = h * s.ratio; if (w > cellW * .9) { w = cellW * .9; h = w / s.ratio; }
       const c = ph ? i : 0, r = ph ? 0 : i;
       const x = c * cellW + s.jx * (cellW - w), y = r * cellH + s.jy * (cellH - h);
       s.figure.style.cssText = `left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${w.toFixed(1)}px;transform:rotate(${s.tilt.toFixed(2)}deg)`;
