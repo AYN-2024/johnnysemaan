@@ -1,9 +1,10 @@
 import { startOpening } from './opening.js';
+import { buildWall } from './wall.js';
 
 const $ = id => document.getElementById(id);
 const views = ['home', 'paintings', 'exhibitions'];
 const dialog = $('viewer');
-let data = { paintings: [], exhibitions: [] }, opening, ready = false;
+let data = { sketches: [], paintings: [], exhibitions: [] }, opening, ready = false, wall = null;
 let viewerItems = [], viewerIndex = 0, zoomed = false, drag = null;
 const node = (tag, className, text) => {
  const el = document.createElement(tag); if (className) el.className = className;
@@ -22,6 +23,14 @@ function showView(view, focus = false) {
  document.title = view === 'home' ? 'Johnny Semaan' : `${view === 'paintings' ? 'Painting' : 'Exhibitions'} — Johnny Semaan`;
  window.scrollTo(0, 0);
  if (focus) (view === 'home' ? $('home').querySelector('a') : $(view + '-title')).focus({ preventScroll: true });
+ if (view === 'home') startWall();
+}
+/** First time the home shows with content ready: build the satellites and surface them after the column slides in. */
+function startWall() {
+ if (wall || !ready) return;
+ wall = buildWall($('wall'), data.sketches || [], { seed: Date.now(), count: 3 });
+ wall.reveal({ delay: 1100, stagger: 700 });
+ setTimeout(() => { document.body.dataset.homeShown = '1'; }, 1400);
 }
 function go() { opening?.finish(); showView(currentView(), true); }
 addEventListener('hashchange', go);
@@ -84,7 +93,7 @@ function fillPages() {
   button.append(img,text); button.addEventListener('click',()=>inspect(data.exhibitions,index)); $('exhibition-list').append(button);
  });
 }
-fetch('content.json').then(response => {if (!response.ok) throw Error('Content unavailable'); return response.json();}).then(content => {data=content;fillPages();ready=true;}).catch(error => {$('load-error').hidden=false;console.error(error);});
+fetch('content.json').then(response => {if (!response.ok) throw Error('Content unavailable'); return response.json();}).then(content => {data=content;fillPages();ready=true;if(document.body.dataset.view==='home')startWall();}).catch(error => {$('load-error').hidden=false;console.error(error);});
 
 opening = startOpening({onComplete:() => showView(currentView())});
 if (location.hash) { opening.finish(); showView(currentView()); }

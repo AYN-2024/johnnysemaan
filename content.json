@@ -1,5 +1,8 @@
 {
-  "paintings": [
+  "sketches": [
+  { "image": "assets/graphite-extraction-v01.png", "title": "Sketch" }
+ ],
+ "paintings": [
     {
       "id": "childhood-game",
       "title": "Childhood Game",

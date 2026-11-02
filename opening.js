@@ -1,15 +1,13 @@
 import { createSurfacing } from './surfacing.js';
 
-const INTRO = 2600, SURFACE_START = INTRO + 3000, SURFACE_END = SURFACE_START + 3700;
-// The drawing surfaces white-on-dark exactly as in the v06 study. Then the paper arrives inside the frame (FLIP:
-// the paper fills the rectangle while the lines turn to graphite) and spreads from the frame edge over the page
-// (SPREAD). The eye stays on the drawing; no frame of the whole screen jumps from black to white.
-const FLIP_START = SURFACE_END + 300, FLIP = 1000, SPREAD_START = FLIP_START + 600, SPREAD = 1300;
-const SPREAD_END = SPREAD_START + SPREAD;
-// PAPER_INTRO: the whole opening runs on the paper field (stage colors inverted by CSS while data-view=opening),
-// so the drawing surfaces straight onto paper and the flip/spread beats are not needed.
-const PAPER_INTRO = true;
-const DURATION = PAPER_INTRO ? SURFACE_END + 650 : SPREAD_END + 450;
+// Sequence: liquid-light intro reveals the identity on the dark field (INTRO) → hold → the same liquid floods
+// the field to paper, dissolving the identity (FLOOD: the engine's reveal phase with a paper back texture) →
+// the drawing surfaces onto paper (SURFACE) → hold → the router brings the ink column and the satellites.
+const INTRO = 2600, HOLD = 1800, FLOOD = 2800;
+const FLOOD_START = INTRO + HOLD, FLOOD_END = FLOOD_START + FLOOD;
+const SURFACE_START = FLOOD_END + 250, SURFACE_END = SURFACE_START + 3700;
+const DURATION = SURFACE_END + 650;
+const PAPER = '#f4f1ea';
 // Liquid-light strength during the name/fish intro. 1 = Codex study (too bright); 0.55 first pass, 0.25 current.
 const LIGHT_SOFTNESS = 0.25;
 const clamp = (n, a = 0, b = 1) => Math.max(a, Math.min(b, n));
@@ -21,7 +19,6 @@ export function startOpening({ onComplete = () => {} } = {}) {
   const stage = $('stage'), front = $('still-front'), back = $('still-back');
   const sketch = $('sketch-scene'), content = $('surfacing-content');
   const paperRect = $('sketch-paper'), lightImage = $('sketch-light'), inkImage = $('sketch-ink');
-  let frameBox = null, surfaced = false;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const lifetime = new AbortController();
   let surface = $('surface'), surfacing = null, engine = null;
@@ -52,25 +49,15 @@ export function startOpening({ onComplete = () => {} } = {}) {
     window.removeEventListener('resize', resize);
     reduced.removeEventListener('change', motionPreference);
   }
-  /** flip 0→1: paper fills the frame as the lines turn to graphite. spread 0→1: page paper grows from the frame edge. */
-  function paper(flip, spread) {
-    paperRect.setAttribute('opacity', flip.toFixed(4));
-    lightImage.setAttribute('opacity', (1 - flip).toFixed(4));
-    inkImage.setAttribute('opacity', flip.toFixed(4));
-    if (spread <= 0) { back.style.setProperty('--wash', '0'); return; }
-    if (!frameBox) {
-      const r = sketch.getBoundingClientRect(), b = back.getBoundingClientRect();
-      frameBox = { top: r.top - b.top, right: b.right - r.right, bottom: b.bottom - r.bottom, left: r.left - b.left };
-    }
-    const k = 1 - spread, px = n => `${Math.max(0, n * k).toFixed(1)}px`;
-    back.style.setProperty('--wash', '1');
-    back.style.setProperty('--spread', `inset(${px(frameBox.top)} ${px(frameBox.right)} ${px(frameBox.bottom)} ${px(frameBox.left)})`);
+  /** The drawing's final state: graphite on paper, paper layer fully washed. Same state every exit path lands on. */
+  function paperState() {
+    paperRect.setAttribute('opacity', '1'); lightImage.setAttribute('opacity', '0'); inkImage.setAttribute('opacity', '1');
+    back.style.setProperty('--wash', '1'); back.style.setProperty('--spread', 'inset(0)');
   }
   function fullSketch() {
     if (surfacing) surfacing.finish();
     else { content.removeAttribute('filter'); content.setAttribute('opacity', '1'); }
-    paperRect.setAttribute('opacity', '1'); lightImage.setAttribute('opacity', '0'); inkImage.setAttribute('opacity', '1');
-    back.style.setProperty('--wash', '1'); back.style.setProperty('--spread', 'inset(0)');
+    paperState();
     layers(false, true);
   }
   function complete(reason = 'complete') {
@@ -105,22 +92,23 @@ export function startOpening({ onComplete = () => {} } = {}) {
         } catch (error) { unavailable(error); }
       }
       layers(!engine, false, Boolean(engine));
-    } else if (elapsed < SURFACE_START) {
-      phase = 'identity'; paper(0, 0); layers(true, false);
+    } else if (elapsed < FLOOD_START) {
+      phase = 'identity'; paperState(); layers(true, false);
+    } else if (elapsed < FLOOD_END) {
+      phase = 'flood';
+      const p = (elapsed - FLOOD_START) / FLOOD;
+      if (engine) {
+        try {
+          engine.frame({ time: elapsed / 1000, dt, phase: 'reveal', progress: p,
+            pointer: { x: innerWidth * .5, y: innerHeight * .6, vx: 0, vy: 0, down: false, active: false } });
+        } catch (error) { unavailable(error); }
+      }
+      // Engine: the liquid front reveals the paper back texture. Fallback: the identity crossfades to the paper layer.
+      if (engine) layers(false, false, true); else layers(true, true, false, 1 - smooth(p));
     } else if (elapsed < SURFACE_END) {
       phase = 'surfacing';
-      const timeOnSketch = elapsed - SURFACE_START;
-      surfacing.render(timeOnSketch);
-      layers(timeOnSketch < 450, true, false, 1 - smooth(timeOnSketch / 450));
-    } else if (PAPER_INTRO) {
-      // Hold the surfaced drawing in the inverted field; complete() switches to the true paper/ink state and
-      // the router drops the inversion in the same tick.
-      phase = 'sketch'; if (!surfaced) { surfaced = true; surfacing.finish(); layers(false, true); }
-    } else if (elapsed < SPREAD_END) {
-      if (!surfaced) { surfaced = true; surfacing.finish(); layers(false, true); }
-      const flip = smooth((elapsed - FLIP_START) / FLIP), spread = smooth((elapsed - SPREAD_START) / SPREAD);
-      phase = spread > 0 ? 'spread' : flip > 0 ? 'flip' : 'drawing';
-      paper(flip, spread);
+      surfacing.render(Math.max(0, elapsed - SURFACE_START));
+      layers(false, true);
     } else {
       phase = 'sketch'; fullSketch();
     }
@@ -186,10 +174,9 @@ export function startOpening({ onComplete = () => {} } = {}) {
       const raster = await loadImage(url);
       frontCanvas.getContext('2d').drawImage(raster, 0, 0);
     } finally { URL.revokeObjectURL(url); }
-    const box = sketch.getBoundingClientRect(), context = backCanvas.getContext('2d');
-    context.filter = 'grayscale(1) invert(1) contrast(1.6)';
-    context.drawImage(image, box.x * dpr, box.y * dpr, box.width * dpr, box.height * dpr);
-    context.filter = 'none';
+    // The flood reveals plain paper; the drawing surfaces separately, after the field has turned.
+    const context = backCanvas.getContext('2d');
+    context.fillStyle = PAPER; context.fillRect(0, 0, backCanvas.width, backCanvas.height);
     return { frontCanvas, backCanvas, w, h, dpr, glow: LIGHT_SOFTNESS };
   }
   async function prepare() {

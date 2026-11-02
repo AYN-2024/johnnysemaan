@@ -149,7 +149,8 @@ void main() {
   vec3 petrol = mix(vec3(.025,.085,.09), vec3(.13,.30,.31), cover.y * cover.y);
   vec3 pigment = (ivory * cover.x + petrol * cover.y) / total;
   pigment *= .72 + .45 * diffuse;
-  pigment += vec3(.91,.88,.8) * specular * smoothstep(.05,.5,density) * .76 * uGlow;
+  float glow = uPhase == 2 ? max(uGlow, .7) : uGlow;   // the flood carries more light than the signature reveal
+  pigment += vec3(.91,.88,.8) * specular * smoothstep(.05,.5,density) * .76 * glow;
   pigment = clamp(pigment, 0., 1.);
 
   // The boundary is transported by the actual velocity/dye fields. Scene UVs stay vUv.
@@ -165,7 +166,7 @@ void main() {
   vec3 base = uPhase == 0 ? mix(bg, front, revealed) : mix(front, back, revealed);
   if (uPhase == 1) { base = front; finish = 1.; }
   float boundary = 1. - smoothstep(.02, .19, abs(distanceToFront-radius));
-  float materialAlpha = (1.-exp(-total*1.4)) * finish * uGlow;
+  float materialAlpha = (1.-exp(-total*1.4)) * finish * glow;
   if (uPhase == 2) materialAlpha *= .38 + .62 * boundary;
   o = vec4(mix(base, pigment, clamp(materialAlpha,0.,.92)), 1.);
 }`;
