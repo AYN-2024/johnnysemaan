@@ -1,7 +1,15 @@
 import { createSurfacing } from './surfacing.js';
 
 const INTRO = 2600, SURFACE_START = INTRO + 3000, SURFACE_END = SURFACE_START + 3700;
-const DURATION = SURFACE_END + 650;
+// The drawing surfaces white-on-dark exactly as in the v06 study. Then the paper arrives inside the frame (FLIP:
+// the paper fills the rectangle while the lines turn to graphite) and spreads from the frame edge over the page
+// (SPREAD). The eye stays on the drawing; no frame of the whole screen jumps from black to white.
+const FLIP_START = SURFACE_END + 300, FLIP = 1000, SPREAD_START = FLIP_START + 600, SPREAD = 1300;
+const SPREAD_END = SPREAD_START + SPREAD;
+// PAPER_INTRO: the whole opening runs on the paper field (stage colors inverted by CSS while data-view=opening),
+// so the drawing surfaces straight onto paper and the flip/spread beats are not needed.
+const PAPER_INTRO = true;
+const DURATION = PAPER_INTRO ? SURFACE_END + 650 : SPREAD_END + 450;
 // Liquid-light strength during the name/fish intro. 1 = Codex study (too bright); 0.55 first pass, 0.25 current.
 const LIGHT_SOFTNESS = 0.25;
 const clamp = (n, a = 0, b = 1) => Math.max(a, Math.min(b, n));
@@ -12,6 +20,8 @@ export function startOpening({ onComplete = () => {} } = {}) {
   const $ = id => document.getElementById(id);
   const stage = $('stage'), front = $('still-front'), back = $('still-back');
   const sketch = $('sketch-scene'), content = $('surfacing-content');
+  const paperRect = $('sketch-paper'), lightImage = $('sketch-light'), inkImage = $('sketch-ink');
+  let frameBox = null, surfaced = false;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const lifetime = new AbortController();
   let surface = $('surface'), surfacing = null, engine = null;
@@ -42,9 +52,25 @@ export function startOpening({ onComplete = () => {} } = {}) {
     window.removeEventListener('resize', resize);
     reduced.removeEventListener('change', motionPreference);
   }
+  /** flip 0→1: paper fills the frame as the lines turn to graphite. spread 0→1: page paper grows from the frame edge. */
+  function paper(flip, spread) {
+    paperRect.setAttribute('opacity', flip.toFixed(4));
+    lightImage.setAttribute('opacity', (1 - flip).toFixed(4));
+    inkImage.setAttribute('opacity', flip.toFixed(4));
+    if (spread <= 0) { back.style.setProperty('--wash', '0'); return; }
+    if (!frameBox) {
+      const r = sketch.getBoundingClientRect(), b = back.getBoundingClientRect();
+      frameBox = { top: r.top - b.top, right: b.right - r.right, bottom: b.bottom - r.bottom, left: r.left - b.left };
+    }
+    const k = 1 - spread, px = n => `${Math.max(0, n * k).toFixed(1)}px`;
+    back.style.setProperty('--wash', '1');
+    back.style.setProperty('--spread', `inset(${px(frameBox.top)} ${px(frameBox.right)} ${px(frameBox.bottom)} ${px(frameBox.left)})`);
+  }
   function fullSketch() {
     if (surfacing) surfacing.finish();
     else { content.removeAttribute('filter'); content.setAttribute('opacity', '1'); }
+    paperRect.setAttribute('opacity', '1'); lightImage.setAttribute('opacity', '0'); inkImage.setAttribute('opacity', '1');
+    back.style.setProperty('--wash', '1'); back.style.setProperty('--spread', 'inset(0)');
     layers(false, true);
   }
   function complete(reason = 'complete') {
@@ -80,12 +106,21 @@ export function startOpening({ onComplete = () => {} } = {}) {
       }
       layers(!engine, false, Boolean(engine));
     } else if (elapsed < SURFACE_START) {
-      phase = 'identity'; layers(true, false);
+      phase = 'identity'; paper(0, 0); layers(true, false);
     } else if (elapsed < SURFACE_END) {
       phase = 'surfacing';
       const timeOnSketch = elapsed - SURFACE_START;
       surfacing.render(timeOnSketch);
       layers(timeOnSketch < 450, true, false, 1 - smooth(timeOnSketch / 450));
+    } else if (PAPER_INTRO) {
+      // Hold the surfaced drawing in the inverted field; complete() switches to the true paper/ink state and
+      // the router drops the inversion in the same tick.
+      phase = 'sketch'; if (!surfaced) { surfaced = true; surfacing.finish(); layers(false, true); }
+    } else if (elapsed < SPREAD_END) {
+      if (!surfaced) { surfaced = true; surfacing.finish(); layers(false, true); }
+      const flip = smooth((elapsed - FLIP_START) / FLIP), spread = smooth((elapsed - SPREAD_START) / SPREAD);
+      phase = spread > 0 ? 'spread' : flip > 0 ? 'flip' : 'drawing';
+      paper(flip, spread);
     } else {
       phase = 'sketch'; fullSketch();
     }
