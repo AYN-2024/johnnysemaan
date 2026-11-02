@@ -2,8 +2,8 @@ import { createSurfacing } from './surfacing.js';
 
 const INTRO = 2600, SURFACE_START = INTRO + 3000, SURFACE_END = SURFACE_START + 3700;
 const DURATION = SURFACE_END + 650;
-// Liquid-light strength during the name/fish intro. 1 = Codex study (too bright); tune 0.4–0.7.
-const LIGHT_SOFTNESS = 0.55;
+// Liquid-light strength during the name/fish intro. 1 = Codex study (too bright); 0.55 first pass, 0.25 current.
+const LIGHT_SOFTNESS = 0.25;
 const clamp = (n, a = 0, b = 1) => Math.max(a, Math.min(b, n));
 const smooth = n => { const x = clamp(n); return x * x * (3 - 2 * x); };
 
