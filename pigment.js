@@ -166,14 +166,13 @@ void main() {
   vec3 base = uPhase == 0 ? mix(bg, front, revealed) : front;
   if (uPhase == 1) { base = front; finish = 1.; }
   if (uPhase == 2) {
-    // Flood: the light surface grows from wherever the liquid already is until it covers the field (no geometry,
-    // no circle), then lifts. The canvas turns transparent where it lifts, so the real page shows through.
-    float threshold = mix(.55, -.25, smoothstep(0., .6, p));
-    float covered = smoothstep(threshold, threshold + .18, density);
-    float lift = smoothstep(.5, 1., p);
-    float liquid = clamp((1.-exp(-total*1.4)) * glow, 0., .92);
-    vec3 sheet = mix(base, pigment, max(liquid, covered));
-    o = vec4(sheet, 1. - covered * lift);
+    // Painting: the liquid light is the brush, the dark field the unpainted ground. Where the liquid has passed,
+    // the page is painted (canvas transparent); the brush glows over the page as it travels and is gone by the end.
+    float threshold = mix(.55, -.25, smoothstep(0., .8, p));
+    float painted = smoothstep(threshold, threshold + .2, density);
+    float brush = clamp((1.-exp(-total*1.4)) * glow, 0., .92) * (1. - smoothstep(.72, 1., p));
+    vec3 sheet = mix(base, pigment, max(brush, painted));
+    o = vec4(sheet, max(1. - painted, brush));
     return;
   }
   float materialAlpha = (1.-exp(-total*1.4)) * finish * glow;

@@ -94,7 +94,16 @@ export function startOpening({ onComplete = () => {}, onFlood = () => {} } = {})
       }
       layers(!engine, false, Boolean(engine));
     } else if (elapsed < FLOOD_START) {
-      phase = 'identity'; paperState(); layers(true, false);
+      phase = 'identity'; paperState();
+      // Hold on the canvas, not the SVG layer: one renderer from the first frame to the flood, so the marks never
+      // shift at a hand-off. The SVG identity layer is the no-WebGL fallback only.
+      if (engine) {
+        try {
+          engine.frame({ time: elapsed / 1000, dt, phase: 'intro', progress: 1,
+            pointer: { x: innerWidth * .5, y: innerHeight * .6, vx: 0, vy: 0, down: false, active: false } });
+        } catch (error) { unavailable(error); }
+      }
+      layers(!engine, false, Boolean(engine));
     } else if (elapsed < FLOOD_END) {
       phase = 'flood';
       if (!flooded) { flooded = true; try { onFlood(); } catch (error) { console.warn('Opening onFlood:', error); } }
