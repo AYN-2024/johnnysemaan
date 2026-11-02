@@ -29,7 +29,7 @@ function showView(view, focus = false) {
 function startWall() {
  if (wall || !ready) return;
  wall = buildWall($('wall'), data.sketches || [], { seed: Date.now(), count: 3 });
- wall.reveal({ delay: 1100, stagger: 700 });
+ wall.reveal(document.body.dataset.flooding ? { delay: 400, stagger: 650 } : { delay: 300, stagger: 650 });
  setTimeout(() => { document.body.dataset.homeShown = '1'; }, 1400);
 }
 function go() { opening?.finish(); showView(currentView(), true); }
@@ -95,5 +95,8 @@ function fillPages() {
 }
 fetch('content.json').then(response => {if (!response.ok) throw Error('Content unavailable'); return response.json();}).then(content => {data=content;fillPages();ready=true;if(document.body.dataset.view==='home')startWall();}).catch(error => {$('load-error').hidden=false;console.error(error);});
 
-opening = startOpening({onComplete:() => showView(currentView())});
+opening = startOpening({
+ onFlood: () => { document.body.dataset.homeShown = '1'; document.body.dataset.flooding = '1'; showView('home'); },
+ onComplete: () => { delete document.body.dataset.flooding; showView(currentView()); }
+});
 if (location.hash) { opening.finish(); showView(currentView()); }

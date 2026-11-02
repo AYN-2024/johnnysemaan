@@ -1,12 +1,12 @@
 import { createSurfacing } from './surfacing.js';
 
-// Sequence: liquid-light intro reveals the identity on the dark field (INTRO) → hold → the same liquid floods
-// the field to paper, dissolving the identity (FLOOD: the engine's reveal phase with a paper back texture) →
-// the drawing surfaces onto paper (SURFACE) → hold → the router brings the ink column and the satellites.
+// Sequence: liquid-light intro reveals the identity on the dark field (INTRO) → hold → the same liquid surface
+// grows to cover the field and lifts, revealing the finished page beneath (FLOOD: engine reveal phase, canvas
+// turns transparent). The hero drawing surfaces during the flood; the router shows column + satellites under it.
 const INTRO = 2600, HOLD = 1800, FLOOD = 2800;
 const FLOOD_START = INTRO + HOLD, FLOOD_END = FLOOD_START + FLOOD;
-const SURFACE_START = FLOOD_END + 250, SURFACE_END = SURFACE_START + 3700;
-const DURATION = SURFACE_END + 650;
+const SURFACE_START = FLOOD_START, SURFACE_END = SURFACE_START + 3700;
+const DURATION = Math.max(FLOOD_END, SURFACE_END) + 450;
 const PAPER = '#f4f1ea';
 // Liquid-light strength during the name/fish intro. 1 = Codex study (too bright); 0.55 first pass, 0.25 current.
 const LIGHT_SOFTNESS = 0.25;
@@ -14,10 +14,11 @@ const clamp = (n, a = 0, b = 1) => Math.max(a, Math.min(b, n));
 const smooth = n => { const x = clamp(n); return x * x * (3 - 2 * x); };
 
 /** Run once, then hand the page to its router. Destroy cancels without notifying. */
-export function startOpening({ onComplete = () => {} } = {}) {
+export function startOpening({ onComplete = () => {}, onFlood = () => {} } = {}) {
   const $ = id => document.getElementById(id);
   const stage = $('stage'), front = $('still-front'), back = $('still-back');
   const sketch = $('sketch-scene'), content = $('surfacing-content');
+  let flooded = false;
   const paperRect = $('sketch-paper'), lightImage = $('sketch-light'), inkImage = $('sketch-ink');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const lifetime = new AbortController();
@@ -49,10 +50,10 @@ export function startOpening({ onComplete = () => {} } = {}) {
     window.removeEventListener('resize', resize);
     reduced.removeEventListener('change', motionPreference);
   }
-  /** The drawing's final state: graphite on paper, paper layer fully washed. Same state every exit path lands on. */
+  /** The drawing's final state: graphite on a transparent layer; the paper is the page itself. */
   function paperState() {
-    paperRect.setAttribute('opacity', '1'); lightImage.setAttribute('opacity', '0'); inkImage.setAttribute('opacity', '1');
-    back.style.setProperty('--wash', '1'); back.style.setProperty('--spread', 'inset(0)');
+    paperRect.setAttribute('opacity', '0'); lightImage.setAttribute('opacity', '0'); inkImage.setAttribute('opacity', '1');
+    back.style.setProperty('--wash', '0');
   }
   function fullSketch() {
     if (surfacing) surfacing.finish();
@@ -96,18 +97,21 @@ export function startOpening({ onComplete = () => {} } = {}) {
       phase = 'identity'; paperState(); layers(true, false);
     } else if (elapsed < FLOOD_END) {
       phase = 'flood';
+      if (!flooded) { flooded = true; try { onFlood(); } catch (error) { console.warn('Opening onFlood:', error); } }
       const p = (elapsed - FLOOD_START) / FLOOD;
+      surfacing.render(elapsed - SURFACE_START);
       if (engine) {
         try {
           engine.frame({ time: elapsed / 1000, dt, phase: 'reveal', progress: p,
             pointer: { x: innerWidth * .5, y: innerHeight * .6, vx: 0, vy: 0, down: false, active: false } });
         } catch (error) { unavailable(error); }
       }
-      // Engine: the liquid front reveals the paper back texture. Fallback: the identity crossfades to the paper layer.
-      if (engine) layers(false, false, true); else layers(true, true, false, 1 - smooth(p));
+      // Engine: the light sheet covers then lifts, going transparent over the real page and the surfacing hero.
+      // Fallback: the identity layer crossfades away over the page.
+      if (engine) layers(false, true, true); else layers(true, true, false, 1 - smooth(p));
     } else if (elapsed < SURFACE_END) {
       phase = 'surfacing';
-      surfacing.render(Math.max(0, elapsed - SURFACE_START));
+      surfacing.render(elapsed - SURFACE_START);
       layers(false, true);
     } else {
       phase = 'sketch'; fullSketch();

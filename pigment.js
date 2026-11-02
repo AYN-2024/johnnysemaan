@@ -11,7 +11,7 @@
   'use strict';
   global.makePigment = function makePigment(canvas, options) {
     const gl = canvas.getContext('webgl2', {
-      alpha: false, antialias: false, depth: false, stencil: false,
+      alpha: true, antialias: false, depth: false, stencil: false,
       premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: 'high-performance'
     });
     if (!gl) throw new Error('Pigment: WebGL2 unavailable');
@@ -163,11 +163,20 @@ void main() {
   float edgeWidth = .035 + density * .045;
   float revealed = 1. - smoothstep(radius-edgeWidth, radius+edgeWidth, distanceToFront);
   float finish = 1. - smoothstep(.60, 1., p);
-  vec3 base = uPhase == 0 ? mix(bg, front, revealed) : mix(front, back, revealed);
+  vec3 base = uPhase == 0 ? mix(bg, front, revealed) : front;
   if (uPhase == 1) { base = front; finish = 1.; }
-  float boundary = 1. - smoothstep(.02, .19, abs(distanceToFront-radius));
+  if (uPhase == 2) {
+    // Flood: the light surface grows from wherever the liquid already is until it covers the field (no geometry,
+    // no circle), then lifts. The canvas turns transparent where it lifts, so the real page shows through.
+    float threshold = mix(.55, -.25, smoothstep(0., .6, p));
+    float covered = smoothstep(threshold, threshold + .18, density);
+    float lift = smoothstep(.5, 1., p);
+    float liquid = clamp((1.-exp(-total*1.4)) * glow, 0., .92);
+    vec3 sheet = mix(base, pigment, max(liquid, covered));
+    o = vec4(sheet, 1. - covered * lift);
+    return;
+  }
   float materialAlpha = (1.-exp(-total*1.4)) * finish * glow;
-  if (uPhase == 2) materialAlpha *= .38 + .62 * boundary;
   o = vec4(mix(base, pigment, clamp(materialAlpha,0.,.92)), 1.);
 }`;
 
