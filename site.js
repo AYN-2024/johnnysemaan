@@ -1,5 +1,6 @@
 import { startOpening } from './opening.js';
 import { buildWall } from './wall.js';
+import { startRotation } from './rotate.js';
 
 const $ = id => document.getElementById(id);
 const views = ['home', 'paintings', 'exhibitions'];
@@ -15,23 +16,39 @@ function showView(view, focus = false) {
  if (dialog.open) dialog.close();
  document.body.dataset.view = view;
  for (const name of views) $(name).hidden = name !== view;
- $('site-header').hidden = view === 'home';
- document.querySelectorAll('#site-header nav a').forEach(a => {
+ closeBurger();
+ document.querySelectorAll('#site-menu nav a, #burger-panel a').forEach(a => {
   if (a.hash === '#' + view) a.setAttribute('aria-current', 'page');
   else a.removeAttribute('aria-current');
  });
  document.title = view === 'home' ? 'Johnny Semaan' : `${view === 'paintings' ? 'Painting' : 'Exhibitions'} — Johnny Semaan`;
  window.scrollTo(0, 0);
- if (focus) (view === 'home' ? $('home').querySelector('a') : $(view + '-title')).focus({ preventScroll: true });
+ if (focus) (view === 'home' ? document.querySelector('#site-menu a') : $(view + '-title')).focus({ preventScroll: true });
  if (view === 'home') startWall();
 }
 /** First time the home shows with content ready: build the satellites and surface them after the column slides in. */
 function startWall() {
  if (wall || !ready) return;
- wall = buildWall($('wall'), data.sketches || [], { seed: Date.now(), count: 3 });
- wall.reveal(document.body.dataset.flooding ? { delay: 400, stagger: 650 } : { delay: 300, stagger: 650 });
+ wall = buildWall($('wall'), data.sketches || [], { seed: Date.now(), count: 6 }); // the screen filled: every sketch on the wall (Alaa, 3 Nov 2026)
+ // During the flood the sketches are whole under the black and the light uncovers them; otherwise they surface.
+ if (document.body.dataset.flooding && $('stage').dataset.intro === 'pigment') wall.finish();
+ else wall.reveal({ delay: 300, stagger: 650 });
+ // Every 6 s the big sketch goes back to normal size and a small one grows into its place.
+ startRotation(wall, { svg: $('sketch-scene'), image: $('sketch-ink'), item: { image: 'assets/graphite-extraction-v01.png', width: 1057, height: 1488 } });
  setTimeout(() => { document.body.dataset.homeShown = '1'; }, 1400);
 }
+// Portrait: Painting stays in the bar, the rest sits behind the burger (Workshops and Contact disabled for now).
+const burger = document.querySelector('.burger'), panel = $('burger-panel');
+// The panel grows out of the burger and closes back into it (site.css): its transform origin is the burger's centre.
+const burgerOpen = () => 'open' in panel.dataset;
+function closeBurger() { delete panel.dataset.open; burger.setAttribute('aria-expanded', 'false'); }
+function openBurger() {
+ panel.style.setProperty('--from-x', `${burger.offsetLeft + burger.offsetWidth / 2 - panel.offsetLeft}px`);
+ panel.style.setProperty('--from-y', `${burger.offsetTop + burger.offsetHeight / 2 - panel.offsetTop}px`);
+ panel.dataset.open = ''; burger.setAttribute('aria-expanded', 'true');
+}
+burger.addEventListener('click', () => (burgerOpen() ? closeBurger() : openBurger()));
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && burgerOpen()) { closeBurger(); burger.focus(); } });
 function go() { opening?.finish(); showView(currentView(), true); }
 addEventListener('hashchange', go);
 document.querySelector('.skip-link').addEventListener('click', () => { opening?.finish(); showView('home', true); });

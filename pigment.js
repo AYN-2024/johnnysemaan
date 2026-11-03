@@ -19,8 +19,8 @@
     const shaders = new Set(), programs = new Set(), textures = new Set(), framebuffers = new Set();
     let vao = null, destroyed = false, initialized = false;
     let width = 1, height = 1, ratio = 1, shortSide = 1, dims = [1, 1];
-    let vel, dye, pressure, divergence, curl, front, back;
-    let pCurl, pVort, pDiv, pScale, pJac, pGrad, pAdv, pDisplay;
+    let vel, dye, pressure, divergence, curl, trail, front, back;
+    let pCurl, pVort, pDiv, pScale, pJac, pGrad, pAdv, pTrail, pDisplay;
     let frames = 0, steps = 0, lastPhase = '', lastProgress = 0, previousAuto = null;
     let previousPointer = null, origin = [0.34, 0.43], lastTime = 0;
     const sources = new Float32Array(128);
@@ -29,6 +29,19 @@
     const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
     // Light strength of the ivory/petrol material over the dark field. 1 = original study; lower = softer.
     let glow = clamp(Number(options.glow ?? 1) || 0, 0, 1);
+    // The flood's light path in CSS px: from the fish back to the menu side (Alaa, 3 Nov 2026: the left-to-right sweep
+    // took the eye away from the sketch; "one light will make the black menu"). Without it, the authored sweep is used.
+    const flood = options.flood || null;
+    // The menu's rectangle in CSS px ({ x0, y0, x1, y1 }); kept free of the flood's light.
+    const menu = options.menu || null;
+    // The flood's light swims like a fish (Alaa, 3 Nov 2026: no fish is drawn; the liquid light itself moves the way
+    // water moves with one). One S-shaped line from the logo's fish to the sketch, in BURSTS bursts and glides; a thin
+    // undulating body of light BODY long; each tail beat (BEAT_HZ) throws a swirl to alternate sides, the wake a real
+    // fish leaves behind it. The swim ends at SWIM_END of the flood; what it poured lingers after. The black stays dark
+    // water: the light is a window in it onto the page and Johnny's drawings, the water stays a little clearer where it
+    // has been, and all of it clears after the swim (the light felt like smoke, apart from the sketches).
+    const SWIM_END = .72, BODY = .16, BEAT_HZ = 3.2, BURSTS = 3, BURST_DEPTH = .55, TAIL_SWING = .03;
+    let swimPhase = 0;
 
     // Verbatim Liquid Light shader core is inserted here at build time.
     const HEAD = '#version 300 es\nprecision highp float;\nprecision highp sampler2D;\n';
@@ -114,9 +127,17 @@ void main() {
 }`;
     const FS_COPY = `in vec2 vUv; out vec4 o; uniform sampler2D uSrc; void main() { o = texture(uSrc, vUv); }`;
 
+    // Where the light has been during the swim: the most light each spot has held (r).
+    const FS_TRAIL = `in vec2 vUv; out vec4 o;
+uniform sampler2D uTrail, uDye;
+float heightOf(vec4 d) { return 1.0 - exp(-max(d.r + d.g + d.b, 0.0) * .7); }
+void main() { o = vec4(max(texture(uTrail, vUv).r, heightOf(max(texture(uDye, vUv), 0.))), 0., 0., 1.); }`;
+
     const FS_DISPLAY = `in vec2 vUv; out vec4 o;
-uniform sampler2D uDye, uVel, uFront, uBack;
+uniform sampler2D uDye, uVel, uFront, uBack, uTrail;
 uniform vec2 uDyeTexel, uDims, uOrigin;
+uniform vec4 uMenu;   // the menu's rectangle (UV, y up): the flood never puts its light there
+uniform float uSwim;  // 1: the flood's swim (the black stays until the light has swum); 0: the black clears as it goes
 uniform float uProgress;
 uniform float uGlow;
 uniform int uPhase;
@@ -152,6 +173,7 @@ void main() {
   float glow = uPhase == 2 ? max(uGlow, .7) : uGlow;   // the flood carries more light than the signature reveal
   pigment += vec3(.91,.88,.8) * specular * smoothstep(.05,.5,density) * .76 * glow;
   pigment = clamp(pigment, 0., 1.);
+  if (uPhase == 2) pigment = clamp((pigment - .45) * 1.4 + .45, 0., 1.);   // the flood's light: more contrast, black to white
 
   // The boundary is transported by the actual velocity/dye fields. Scene UVs stay vUv.
   vec2 q = (vUv - uOrigin) * uDims;
@@ -168,11 +190,19 @@ void main() {
   if (uPhase == 2) {
     // Painting: the liquid light is the brush, the dark field the unpainted ground. Where the liquid has passed,
     // the page is painted (canvas transparent); the brush glows over the page as it travels and is gone by the end.
-    float threshold = mix(.55, -.25, smoothstep(0., .8, p));
+    float threshold = mix(.55, -.25, smoothstep(0., .5, p));   // the black goes faster (was by 80% of the flood)
     float painted = smoothstep(threshold, threshold + .2, density);
-    float brush = clamp((1.-exp(-total*1.4)) * glow, 0., .92) * (1. - smoothstep(.72, 1., p));
-    vec3 sheet = mix(base, pigment, max(brush, painted));
-    o = vec4(sheet, max(1. - painted, brush));
+    // Swim: the dark water opens only where the light is (a window onto the page and its drawings), stays a little
+    // clearer where the light has been, and clears everywhere from 60% of the flood, after the swim.
+    float been = texture(uTrail, vUv).r;
+    painted = mix(painted, max(max(smoothstep(.12, .45, density), smoothstep(.3, .8, been) * .22), smoothstep(.6, .85, p)), uSwim);
+    // Nothing of the light goes on top of the menu (Alaa, 3 Nov 2026): there the dark field is only uncovered.
+    if (all(greaterThanEqual(vUv, uMenu.xy)) && all(lessThanEqual(vUv, uMenu.zw))) { o = vec4(base, 1. - painted); return; }
+    float brush = clamp((1.-exp(-total*1.4)) * glow, 0., .92) * (1. - smoothstep(.85, 1., p));   // the light lingers (was from 72%)
+    // The light over what is left of the dark field.
+    float cover = 1. - painted;
+    float alpha = brush + cover * (1. - brush);
+    o = vec4((pigment * brush + base * cover * (1. - brush)) / max(alpha, .0001), alpha);
     return;
   }
   float materialAlpha = (1.-exp(-total*1.4)) * finish * glow;
@@ -240,7 +270,7 @@ void main() {
       gl.deleteFramebuffer(t.fb); framebuffers.delete(t.fb);
     }
     function simulationTargets() {
-      return [vel?.r,vel?.w,dye?.r,dye?.w,pressure?.r,pressure?.w,divergence,curl].filter(Boolean);
+      return [vel?.r,vel?.w,dye?.r,dye?.w,pressure?.r,pressure?.w,divergence,curl,trail?.r,trail?.w].filter(Boolean);
     }
     function imageTexture(image, existing) {
       if (!image || !image.width || !image.height) throw new Error('Pigment: a nonempty frontCanvas and backCanvas are required');
@@ -274,7 +304,7 @@ void main() {
       for (const t of simulationTargets()) {
         gl.bindFramebuffer(gl.FRAMEBUFFER,t.fb); gl.viewport(0,0,t.w,t.h); gl.clear(gl.COLOR_BUFFER_BIT);
       }
-      sourceCount=0; sources.fill(0); previousAuto=null; previousPointer=null;
+      sourceCount=0; sources.fill(0); previousAuto=null; previousPointer=null; swimPhase=0;
       origin=[.34,.43]; lastPhase=''; lastProgress=0; lastTime=0;
     }
     function resize(next) {
@@ -289,20 +319,54 @@ void main() {
       gl.bindVertexArray(vao);
       front=imageTexture(next.frontCanvas,front); back=imageTexture(next.backCanvas,back);
       for (const t of simulationTargets()) releaseTarget(t);
-      vel=dye=pressure=divergence=curl=null;
+      vel=dye=pressure=divergence=curl=trail=null;
       const simShort=Math.min(144,Math.max(64,Math.round(shortSide*.4)));
       const dyeShort=Math.min(640,Math.round(shortSide*ratio),Math.floor(1600/Math.max(...dims)));
       const sw=Math.max(1,Math.round(simShort*dims[0])), sh=Math.max(1,Math.round(simShort*dims[1]));
       const dw=Math.max(1,Math.round(dyeShort*dims[0])), dh=Math.max(1,Math.round(dyeShort*dims[1]));
-      vel=pair(sw,sh,gl.LINEAR); dye=pair(dw,dh,gl.LINEAR);
+      vel=pair(sw,sh,gl.LINEAR); dye=pair(dw,dh,gl.LINEAR); trail=pair(dw,dh,gl.LINEAR);
       pressure=pair(sw,sh,gl.NEAREST); divergence=target(sw,sh,gl.NEAREST); curl=target(sw,sh,gl.NEAREST);
       clearFields(); checkError('resize/upload');
     }
-    function addSplat(ax,ay,bx,by,vx,vy,radius,energy,ivory,petrol,dt,swirl) {
+    // ink scales how much light a source pours relative to how hard it pushes the water (1 = as much).
+    function addSplat(ax,ay,bx,by,vx,vy,radius,energy,ivory,petrol,dt,swirl,ink=1) {
       if (sourceCount>=8 || energy<=0) return;
       const o=sourceCount++*16, grip=1-Math.exp(-dt*35*energy);
       sources.set([ax,ay,bx,by,clamp(vx,-4,4),clamp(vy,-4,4),radius,grip,
-        ivory*2.8,petrol*2.8,0,energy*.2,0,swirl,1-Math.exp(-dt*48*energy),0],o);
+        ivory*2.8,petrol*2.8,0,energy*.2,0,swirl,1-Math.exp(-dt*48*energy*ink),0],o);
+    }
+    /** The swim line at u in [0,1]: an S-curve from the fish to the sketch, in short-side units with y up. */
+    function swimPoint(u) {
+      const ax=flood.from[0]/shortSide, ay=(height-flood.from[1])/shortSide;
+      const bx=flood.to[0]/shortSide, by=(height-flood.to[1])/shortSide, dx=bx-ax, dy=by-ay, bend=.28;
+      const p1=[ax+dx/3-dy*bend,ay+dy/3+dx*bend], p2=[ax+dx*2/3+dy*bend,ay+dy*2/3-dx*bend], v=1-u;
+      return [v*v*v*ax+3*v*v*u*p1[0]+3*v*u*u*p2[0]+u*u*u*bx, v*v*v*ay+3*v*v*u*p1[1]+3*v*u*u*p2[1]+u*u*u*by];
+    }
+    function swim(p,dt) {
+      const energy=smooth(0,.05,p)*(1-smooth(SWIM_END-.06,SWIM_END+.04,p));
+      if (energy<=0) { previousAuto=null; return; }
+      const tau=clamp(p/SWIM_END,0,1), w=2*Math.PI*BURSTS;
+      const u=clamp(tau-BURST_DEPTH/w*Math.sin(w*tau),0,1);   // speed 1 -/+ BURST_DEPTH: bursts and glides
+      const beat=Math.max(0,Math.sin(w*tau-.6));                // the tail beats as it speeds up and rests in the glide
+      swimPhase+=2*Math.PI*BEAT_HZ*dt*(.25+.75*beat);
+      const head=swimPoint(u), ahead=swimPoint(Math.min(1,u+.01)), behind=swimPoint(Math.max(0,u-.01));
+      const hl=Math.hypot(ahead[0]-behind[0],ahead[1]-behind[1])||1, hx=(ahead[0]-behind[0])/hl, hy=(ahead[1]-behind[1])/hl;
+      const nx=-hy, ny=hx, swing=TAIL_SWING*(.35+.65*beat);
+      // A wave runs down the body from head to tail, growing toward the tail.
+      const along=x => { const s=swing*(x/BODY)**2*Math.sin(swimPhase-2*Math.PI*x/BODY); return [head[0]-hx*x+nx*s, head[1]-hy*x+ny*s]; };
+      const mid=along(BODY*.5), tail=along(BODY), fin=along(BODY*1.3);
+      const prev=previousAuto || head;
+      const vx=clamp((head[0]-prev[0])/Math.max(dt,.001),-3,3), vy=clamp((head[1]-prev[1])/Math.max(dt,.001),-3,3);
+      const lateral=.6*swing*2*Math.PI*BEAT_HZ*Math.cos(swimPhase), thrust=.25*beat;
+      const band=.42+.58*Math.pow(.5+.5*Math.sin(tau*35),2);
+      // Light is poured per distance swum, not per second: a glide does not pool light where the fish slows.
+      const ink=clamp(Math.hypot(vx,vy)/.6,.15,1);
+      addSplat(head[0],head[1],mid[0],mid[1],vx*.35,vy*.35,.02,energy,band,.15,dt,0,ink);
+      addSplat(mid[0],mid[1],tail[0],tail[1],vx*.2,vy*.2,.022,energy,band*.8,.2,dt,0,ink*.7);
+      // The tail pushes the water hard but leaves only a trace of light: the wake shows as thin swirls, not a cloud.
+      addSplat(tail[0],tail[1],fin[0],fin[1],nx*lateral-hx*thrust,ny*lateral-hy*thrust,.025,energy*(.4+.6*beat),.12,band,dt,
+        .8*Math.sign(Math.cos(swimPhase)),.12);
+      previousAuto=head;
     }
     function prepareSources(phase,p,pointer,dt) {
       sourceCount=0; sources.fill(0);
@@ -318,6 +382,7 @@ void main() {
         previousPointer=[x,y]; origin=[x/dims[0],y/dims[1]];
       } else previousPointer=null;
       if (phase==='gesture') { previousAuto=null; return; }
+      if (phase==='reveal' && flood) { swim(p,dt); return; }
       // One authored stroke, gated by supplied progress. No internal timeline or perpetual emitters.
       const energy=smooth(0,.08,p)*(1-smooth(.32,.58,p));
       if (energy<=0) { previousAuto=null; return; }
@@ -348,11 +413,17 @@ void main() {
       gl.uniform4f(u.uDiss,.62,.62,.62,2.6); gl.uniform1f(u.uEdge,1.6); gl.uniform1f(u.uMax,10);
       gl.uniform1i(u.uMode,1); draw(dye.w); dye.swap(); steps++;
     }
+    function remember() {
+      const u=use(pTrail);
+      gl.uniform1i(u.uTrail,tex(0,trail.r)); gl.uniform1i(u.uDye,tex(1,dye.r)); draw(trail.w); trail.swap();
+    }
     function render(phase,p) {
       const u=use(pDisplay);
       gl.uniform1i(u.uDye,tex(0,dye.r)); gl.uniform1i(u.uVel,tex(1,vel.r));
-      gl.uniform1i(u.uFront,tex(2,front)); gl.uniform1i(u.uBack,tex(3,back));
+      gl.uniform1i(u.uFront,tex(2,front)); gl.uniform1i(u.uBack,tex(3,back)); gl.uniform1i(u.uTrail,tex(4,trail.r));
+      gl.uniform1f(u.uSwim,flood ? 1 : 0);
       gl.uniform2f(u.uDyeTexel,1/dye.r.w,1/dye.r.h); gl.uniform2f(u.uDims,...dims); gl.uniform2f(u.uOrigin,...origin);
+      gl.uniform4f(u.uMenu, ...(menu ? [menu.x0/width, 1-menu.y1/height, menu.x1/width, 1-menu.y0/height] : [-1,-1,-1,-1]));
       gl.uniform1f(u.uProgress,p); gl.uniform1f(u.uGlow,glow); gl.uniform1i(u.uPhase,phase==='intro' ? 0 : phase==='gesture' ? 1 : 2); draw(null);
     }
     function frame(input) {
@@ -366,9 +437,13 @@ void main() {
       // Phase-local clocks are allowed; only rewinding the same phase triggers an implicit reset.
       if ((phase==='intro' && lastPhase && lastPhase!=='intro') ||
           (phase==='gesture' && lastPhase==='intro') ||
+          (phase==='reveal' && lastPhase==='intro' && flood) ||   // the swim starts in clean dark water
           (phase===lastPhase && (p<lastProgress-.02 || input.time<lastTime))) clearFields();
       if (phase!==lastPhase) previousAuto=null;
-      if (dt>0 && !(p>=1 && phase!=='gesture')) { prepareSources(phase,p,input.pointer,dt); step(dt); }
+      if (dt>0 && !(p>=1 && phase!=='gesture')) {
+        prepareSources(phase,p,input.pointer,dt); step(dt);
+        if (phase==='reveal' && flood) remember();
+      }
       render(phase,p); checkError('frame');
       lastPhase=phase; lastProgress=p; lastTime=input.time; frames++;
     }
@@ -384,7 +459,7 @@ void main() {
       for (const s of shaders) gl.deleteShader(s);
       if (vao) gl.deleteVertexArray(vao);
       framebuffers.clear(); textures.clear(); programs.clear(); shaders.clear();
-      vel=dye=pressure=divergence=curl=front=back=null;
+      vel=dye=pressure=divergence=curl=trail=front=back=null;
     }
     function stats() {
       return {engine:'Liquid Light adaptation',webgl:2,initialized,destroyed,frames,steps,
@@ -397,7 +472,7 @@ void main() {
       const vertex=compile(gl.VERTEX_SHADER,VS);
       pCurl=program(FS_CURL,vertex); pVort=program(FS_VORT,vertex); pDiv=program(FS_DIV,vertex);
       pScale=program(FS_SCALE,vertex); pJac=program(FS_JACOBI,vertex); pGrad=program(FS_GRAD,vertex);
-      pAdv=program(FS_ADV,vertex); pDisplay=program(FS_DISPLAY,vertex);
+      pAdv=program(FS_ADV,vertex); pTrail=program(FS_TRAIL,vertex); pDisplay=program(FS_DISPLAY,vertex);
       vao=gl.createVertexArray();
       if (!vao) throw new Error('Pigment: vertex array allocation failed');
       resize(options); reset(); initialized=true;

@@ -3,7 +3,7 @@ import { createSurfacing } from './surfacing.js';
 // Sequence: liquid-light intro reveals the identity on the dark field (INTRO) → hold → the same liquid surface
 // grows to cover the field and lifts, revealing the finished page beneath (FLOOD: engine reveal phase, canvas
 // turns transparent). The hero drawing surfaces during the flood; the router shows column + satellites under it.
-const INTRO = 2600, HOLD = 1800, FLOOD = 2800;
+const INTRO = 2600, HOLD = 1800, FLOOD = 3300; // flood 2.8 -> 3.3 s: the light lingers while the black goes faster
 const FLOOD_START = INTRO + HOLD, FLOOD_END = FLOOD_START + FLOOD;
 const SURFACE_START = FLOOD_START, SURFACE_END = SURFACE_START + 3700;
 const DURATION = Math.max(FLOOD_END, SURFACE_END) + 450;
@@ -18,7 +18,7 @@ export function startOpening({ onComplete = () => {}, onFlood = () => {} } = {})
   const $ = id => document.getElementById(id);
   const stage = $('stage'), front = $('still-front'), back = $('still-back');
   const sketch = $('sketch-scene'), content = $('surfacing-content');
-  let flooded = false;
+  let flooded = false, uncovered = false;
   const paperRect = $('sketch-paper'), lightImage = $('sketch-light'), inkImage = $('sketch-ink');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const lifetime = new AbortController();
@@ -108,7 +108,9 @@ export function startOpening({ onComplete = () => {}, onFlood = () => {} } = {})
       phase = 'flood';
       if (!flooded) { flooded = true; try { onFlood(); } catch (error) { console.warn('Opening onFlood:', error); } }
       const p = (elapsed - FLOOD_START) / FLOOD;
-      surfacing.render(elapsed - SURFACE_START);
+      // With the engine the drawing is whole under the black and the light uncovers it; the fallback surfaces it.
+      if (engine && !uncovered) { uncovered = true; surfacing.finish(); }
+      if (!uncovered) surfacing.render(elapsed - SURFACE_START);
       if (engine) {
         try {
           engine.frame({ time: elapsed / 1000, dt, phase: 'reveal', progress: p,
@@ -120,7 +122,7 @@ export function startOpening({ onComplete = () => {}, onFlood = () => {} } = {})
       if (engine) layers(false, true, true); else layers(true, true, false, 1 - smooth(p));
     } else if (elapsed < SURFACE_END) {
       phase = 'surfacing';
-      surfacing.render(elapsed - SURFACE_START);
+      if (!uncovered) surfacing.render(elapsed - SURFACE_START);
       layers(false, true);
     } else {
       phase = 'sketch'; fullSketch();
@@ -187,10 +189,17 @@ export function startOpening({ onComplete = () => {}, onFlood = () => {} } = {})
       const raster = await loadImage(url);
       frontCanvas.getContext('2d').drawImage(raster, 0, 0);
     } finally { URL.revokeObjectURL(url); }
-    // The flood reveals plain paper; the drawing surfaces separately, after the field has turned.
+    // The flood reveals plain paper; the drawings are seen through the light as it swims (pigment.js swim).
     const context = backCanvas.getContext('2d');
     context.fillStyle = PAPER; context.fillRect(0, 0, backCanvas.width, backCanvas.height);
-    return { frontCanvas, backCanvas, w, h, dpr, glow: LIGHT_SOFTNESS };
+    // The flood's light starts at the fish and crosses the sketch back toward the menu side, uncovering the drawings
+    // as it goes, but never over the menu: the left column in landscape, the top bar in portrait (same sizes as site.css).
+    const fish = $('fish').getBoundingClientRect(), sketch = $('sketch-scene').getBoundingClientRect();
+    const portrait = matchMedia('(orientation: portrait)').matches;
+    const flood = { from: [fish.left + fish.width / 2, fish.top + fish.height / 2],
+      to: [sketch.left + sketch.width * 0.15, sketch.top + sketch.height * 0.45] };
+    const menu = portrait ? { x0: 0, y0: 0, x1: w, y1: h * 0.15 } : { x0: 0, y0: 0, x1: Math.max(w * 0.2, 220), y1: h };
+    return { frontCanvas, backCanvas, w, h, dpr, glow: LIGHT_SOFTNESS, flood, menu };
   }
   async function prepare() {
     let image;

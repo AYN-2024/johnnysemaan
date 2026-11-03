@@ -28,15 +28,27 @@ export function buildWall(container, sketches, { seed = Date.now(), count = 3, o
     container.append(figure);
     sheets.push({ figure, svg, group, item, ratio: iw / ih, tier: .72 + rng() * .16, jx: rng(), jy: rng(), tilt: (rng() * 2 - 1) * TILT, surfacing: createSurfacing(svg, group, { prefix: 'wall' + i }) });
   }
+  /**
+   * Where sheet i sits for a drawing of the given width/height ratio: its box in the wall (px) and its tilt. Phone: one
+   * row; desktop: one column for up to 3 sheets, two columns beyond (the screen filled with sketches, Alaa, 3 Nov 2026).
+   */
+  function place(i, ratio) {
+    const s = sheets[i], W = container.clientWidth, H = container.clientHeight, ph = matchMedia('(max-width: 720px)').matches;
+    const cols = ph ? sheets.length : sheets.length > 3 ? 2 : 1, rows = Math.ceil(sheets.length / cols), cellW = W / cols, cellH = H / rows;
+    let h = cellH * s.tier, w = h * ratio; if (w > cellW * .9) { w = cellW * .9; h = w / ratio; }
+    const c = ph ? i : i % cols, r = ph ? 0 : Math.floor(i / cols);
+    return { x: c * cellW + s.jx * (cellW - w), y: r * cellH + s.jy * (cellH - h), w, h, tilt: s.tilt };
+  }
   function layout() {
-    const W = container.clientWidth, H = container.clientHeight, ph = matchMedia('(max-width: 720px)').matches;
-    const cols = ph ? sheets.length : 1, rows = ph ? 1 : sheets.length, cellW = W / cols, cellH = H / rows;
     sheets.forEach((s, i) => {
-      let h = cellH * s.tier, w = h * s.ratio; if (w > cellW * .9) { w = cellW * .9; h = w / s.ratio; }
-      const c = ph ? i : 0, r = ph ? 0 : i;
-      const x = c * cellW + s.jx * (cellW - w), y = r * cellH + s.jy * (cellH - h);
-      s.figure.style.cssText = `left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${w.toFixed(1)}px;transform:rotate(${s.tilt.toFixed(2)}deg)`;
+      const { x, y, w, tilt } = place(i, s.ratio);
+      s.figure.style.cssText = `left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${w.toFixed(1)}px;transform:rotate(${tilt.toFixed(2)}deg)`;
     });
+  }
+  /** Sheet i's box on screen (viewport px) for a drawing of the given ratio, untilted, plus its tilt. */
+  function slotRect(i, ratio) {
+    const box = container.getBoundingClientRect(), p = place(i, ratio);
+    return { left: box.left + p.x, top: box.top + p.y, width: p.w, height: p.h, tilt: p.tilt };
   }
   layout(); addEventListener('resize', layout);
   let frame = 0;
@@ -52,5 +64,5 @@ export function buildWall(container, sketches, { seed = Date.now(), count = 3, o
     };
     frame = requestAnimationFrame(tick);
   }
-  return { sheets, reveal, finish, layout };
+  return { sheets, reveal, finish, layout, slotRect };
 }
