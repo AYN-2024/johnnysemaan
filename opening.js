@@ -1,36 +1,29 @@
-// The opening of the site (storyboard v2, frames 1 to 3, final 5 Nov 2026). The liquid light writes the identity on
-// black (INTRO, 4.5 s), the hold is the loading page (the number under the signature), then the light swims from the
-// fish to the start of the name and lifts the black onto the page (FLOOD). The page under it is Alaa's Immersive study,
-// exact: its own hero intro, the name writing itself and the block arriving, starts the moment the black begins to lift
-// (window.__studyHero.start, defined in the study's script in index.html). pigment.js is unchanged.
-// Review flags on the address: ?stay (park after the count), ?stay=loop (write again and again), ?intro=<ms>,
-// ?fill=<ms> (minimum count time), ?inf (count to 99 then ∞, postponed), ?nogl (no engine: the native fallback).
+// The opening of the site (storyboard v2, frames 1 to 3; reordered 5 Nov 2026, second session). Black, and at once the
+// number: the count runs from the first paint (count.js, inside the page) and tells the true loading time (Alaa: "the
+// loader should come just next to the black screen, let us start with the number"). When it is complete and has rested
+// (REST), the liquid light writes the identity (INTRO, 4.5 s) with the number under the signature, then swims from the
+// fish to the start of the name and lifts the black onto the page (FLOOD). The page under it is Alaa's Immersive study:
+// its own hero intro starts the moment the black begins to lift (window.__studyHero.start). pigment.js is unchanged.
+// Review flags on the address: ?stay (park after the writing), ?stay=loop (write again and again), ?intro=<ms>,
+// ?fill=<ms> (minimum count time, count.js), ?inf (count to 99 then ∞, postponed), ?nogl (no engine: the fallback).
 const QUERY = new URLSearchParams(location.search);
 const STAY = QUERY.has('stay') ? (QUERY.get('stay') === 'loop' ? 'loop' : 'hold') : null;
 const LOOP_PAUSE = 1200;
 const INTRO = Number(QUERY.get('intro')) > 0 ? Number(QUERY.get('intro')) : 4500;   // 2.6 s until 5 Nov; Alaa: "a bit slower, 4.5 sec"
-// The count takes at least MIN_FILL (eased), never less than the pictures, rests REST at 100 %, then the flood. If the
-// pictures are not all in after GIVE_UP it completes anyway: nobody is left on black.
-const MIN_FILL = Number(QUERY.get('fill')) > 0 ? Number(QUERY.get('fill')) : 2000, REST = 400, GIVE_UP = 20000;
-const INFINITY = QUERY.has('inf');
+const REST = 400;   // ms at 100 % before the light starts writing
 const FLOOD = 3300, SETTLE = 450;
 const LIGHT_SOFTNESS = 0.25, DARK = '#080706', PAPER = '#ebeae5';   // the study's paper
-/** What the count counts when the page carries no list (the build writes the landing's files and real sizes on #loader). */
-const HERO_ASSETS = [['assets/sk4.webp', 1], ['assets/sk2.webp', 1], ['assets/sk1.webp', 1]];
-const FOLLOW = 0.12;        // s: how closely the shown number follows the true one (it flows, never runs ahead)
-const FONT_WAIT = 6000;     // ms: the count stops waiting for the fonts' stylesheet after this (blocked or failed)
 const clamp = (n, a = 0, b = 1) => Math.max(a, Math.min(b, n));
 const smooth = n => { const x = clamp(n); return x * x * (3 - 2 * x); };
 
 export function startOpening() {
   const $ = id => document.getElementById(id);
-  const stage = $('stage'), front = $('still-front'), loader = $('loader'), loaderText = loader?.querySelector('.pct');
+  const stage = $('stage'), front = $('still-front'), loader = $('loader');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-  let surface = $('surface'), engine = null, ready = false, running = false, completed = false;
-  let elapsed = 0, anchor = 0, last = 0, raf = 0, phase = 'preparing', intro = 'none';
-  let floodStart = Infinity, floodEnd = Infinity, duration = Infinity, fillDoneAt = null, lastSize = [innerWidth, innerHeight];
-  const assets = { total: 0, done: 0, known: false, fonts: false, shown: 0, text: '' };
-  const box = { frames: 0, floodFrames: 0, worst: 0, failures: [], startedAt: 0, count: assets };   // the black box
+  let surface = $('surface'), engine = null, ready = false, running = false, completed = false, counted = false;
+  let elapsed = 0, anchor = 0, last = 0, raf = 0, phase = 'count', intro = 'none';
+  let floodStart = Infinity, floodEnd = Infinity, duration = Infinity, lastSize = [innerWidth, innerHeight];
+  const box = { frames: 0, floodFrames: 0, worst: 0, failures: [], startedAt: 0, count: window.__count || null };   // the black box
   window.__opening = box;
 
   function signal() { Object.assign(stage.dataset, { phase, intro, time: elapsed.toFixed(0) }); }
@@ -56,62 +49,17 @@ export function startOpening() {
     removeEventListener('keydown', onKey); removeEventListener('scroll', onScroll);
   }
 
-  /* The loading page. It counts what the landing needs, by real size (Alaa, 5 Nov: "a minimum of 2 secs loading, but if
-     it needs more let the loader show it .. let it be accurate"): the hero's drawings and the signature (sizes written by
-     the build) and the fonts. */
-  function landingList() {
-    try { const list = JSON.parse(loader?.dataset.assets || 'null'); if (Array.isArray(list) && list.length) return list; }
-    catch (error) { fail('count list', error); }
-    return HERO_ASSETS;
-  }
-  function trackAssets(list) {
-    assets.total = list.reduce((sum, [, bytes]) => sum + bytes, 0); assets.known = true;
-    for (const [url, bytes] of list) { const image = new Image(); image.onload = image.onerror = () => { assets.done += bytes; }; image.src = url; }
-    whenFontsReady().then(() => { assets.fonts = true; });
-  }
-  /** The study's fonts: their stylesheet loads without holding the first paint (the build); then the faces the hero uses. */
-  function whenFontsReady() {
-    const link = document.getElementById('study-fonts');
-    const sheet = !link || link.media === 'all' ? Promise.resolve() : new Promise(resolve => {
-      link.addEventListener('load', resolve, { once: true }); link.addEventListener('error', resolve, { once: true });
-      setTimeout(resolve, FONT_WAIT);
-    });
-    return sheet
-      .then(() => document.fonts ? Promise.all(['300 16px Archivo', '600 16px Archivo'].map(face => document.fonts.load(face))) : null)
-      .catch(error => fail('fonts', error));
-  }
-  /** The number sits under the start of the signature, placed from the box the light writes into. */
-  function placeLoader() {
-    if (!loader) return;
-    const name = $('light-name').getBoundingClientRect(), gap = Math.max(10, name.height * .12);
-    loader.style.left = `${name.left}px`; loader.style.top = `${name.bottom + gap}px`; loader.style.width = `${name.width}px`;
-  }
-  /**
-   * Show the count `sinceHold` ms into the hold and return its progress, 0..1. The true value is the smaller of the
-   * 2-second clock and what has really arrived (bytes; 99 % at most until the fonts are in); the shown number follows it
-   * (FOLLOW) so it flows and never jumps, never runs ahead of it, and is rounded down: 100 only when everything is in.
-   * After GIVE_UP it completes on the clock: nobody is left on black.
-   */
-  function loaderProgress(sinceHold, dt = 0) {
-    const byTime = smooth(sinceHold / MIN_FILL);
-    let byLoad = assets.known ? assets.done / Math.max(assets.total, 1) : 0;
-    if (!assets.fonts) byLoad = Math.min(byLoad, .99);
-    const target = sinceHold >= GIVE_UP ? byTime : Math.min(byTime, byLoad);
-    if (target > assets.shown) assets.shown += (target - assets.shown) * (dt > 0 ? 1 - Math.exp(-dt / FOLLOW) : 0);
-    if (target >= 1 && assets.shown > .995) assets.shown = 1;
-    const p = assets.shown;
-    if (loader) {
-      loader.classList.add('on');
-      const text = INFINITY ? (p >= 1 ? '∞' : `${Math.min(Math.floor(p * 100), 99)} %`) : `${Math.floor(p * 100)} %`;
-      if (text !== assets.text) { assets.text = text; loaderText.textContent = text; }
-    }
-    return p;
+  /* The count is the page's own (count.js runs from the first paint and places nothing: the number's place under the
+     signature is in opening.css). The light waits for it: complete, then REST at 100 %. Without it (an old page), go. */
+  function countDone() {
+    const count = window.__count;
+    return !count || (count.completeAt !== null && performance.now() - count.completeAt >= REST);
   }
   function hideLoader() { loader?.classList.add('off'); }
   /**
-   * The count is full and has rested: the flood begins. The page under the canvas turns to paper now, while the canvas
-   * is still opaque (a page that stays black until the end arrives in one frame, Alaa, 5 Nov), and the study's hero
-   * starts writing itself, so the light arrives where the page's own writing begins.
+   * The writing is done: the flood begins. The page under the canvas turns to paper now, while the canvas is still
+   * opaque (a page that stays black until the end arrives in one frame, Alaa, 5 Nov), and the study's hero starts
+   * writing itself, so the light arrives where the page's own writing begins.
    */
   function startFlood(at) {
     floodStart = at; floodEnd = at + FLOOD; duration = floodEnd + SETTLE;
@@ -190,14 +138,14 @@ export function startOpening() {
   function engineFrame(frame, label) {
     try { engine.frame({ ...frame, pointer: pointer() }); } catch (error) { fail(label, error); engine = null; intro = 'native'; }
   }
-  /** ?stay: the writing, then its last frame and the count, for as long as the page is open; ?stay=loop writes again and again. */
+  /** ?stay: the count, the writing, then its last frame with the number, for as long as the page is open; ?stay=loop writes again and again. */
   function renderStay(time, dt) {
     const t = STAY === 'loop' ? time % (INTRO + LOOP_PAUSE) : Math.min(time, INTRO);
     elapsed = t; phase = t < INTRO ? 'intro' : 'hold';
-    if (STAY === 'hold' && time >= INTRO) loaderProgress(time - INTRO, dt);
     if (engine) engineFrame({ time: time / 1000, dt, phase: 'intro', progress: Math.min(t / INTRO, 1) }, 'stay frame');
     showLayers(Boolean(engine));
   }
+  /** The opening's clock starts when the count is complete: the writing, then straight into the swim from the fish. */
   function render(time, dt) {
     if (STAY) { renderStay(time, dt); signal(); return; }
     elapsed = Math.min(time, duration);
@@ -205,13 +153,8 @@ export function startOpening() {
       phase = 'intro';
       if (engine) engineFrame({ time: elapsed / 1000, dt, phase: 'intro', progress: elapsed / INTRO }, 'intro frame');
       showLayers(Boolean(engine));
-    } else if (elapsed < floodStart) {
-      phase = 'hold';
-      if (loaderProgress(elapsed - INTRO, dt) >= 1 && fillDoneAt === null) fillDoneAt = elapsed;
-      if (fillDoneAt !== null && elapsed >= fillDoneAt + REST) startFlood(elapsed);
-      if (engine) engineFrame({ time: elapsed / 1000, dt, phase: 'intro', progress: 1 }, 'hold frame');
-      showLayers(Boolean(engine));
     } else if (elapsed < floodEnd) {
+      if (!Number.isFinite(floodStart)) startFlood(INTRO);
       phase = 'flood';
       const p = (elapsed - floodStart) / FLOOD;
       if (engine) { engineFrame({ time: elapsed / 1000, dt, phase: 'reveal', progress: p }, 'flood frame'); box.floodFrames++; showLayers(true); }
@@ -231,6 +174,12 @@ export function startOpening() {
     const raw = Math.max(0, (now - last) / 1000), dt = Math.min(.05, raw);
     if (raw > 0 && phase === 'flood') { const fps = 1 / raw; if (!box.worst || fps < box.worst) box.worst = Math.round(fps); }
     last = now; box.frames++;
+    if (!counted) {
+      // The count first: black, the number, nothing else. The opening's clock stands still until it is complete.
+      counted = countDone();
+      if (!counted) { phase = 'count'; elapsed = 0; anchor = now; signal(); raf = requestAnimationFrame(tick); return; }
+      anchor = now;
+    }
     try { render(now - anchor, dt); } catch (error) { fail('render', error); complete('render-error'); return; }
     if (elapsed >= duration) { complete(); return; }
     raf = requestAnimationFrame(tick);
@@ -285,7 +234,7 @@ export function startOpening() {
   async function prepare() {
     if (completed) return;
     box.startedAt = Math.round(performance.now()); lastSize = [innerWidth, innerHeight];
-    trackAssets(landingList()); placeLoader();
+    box.count = window.__count || null;
     if (QUERY.has('nogl') || typeof window.makePigment !== 'function') intro = 'native';
     else {
       try {
@@ -296,7 +245,7 @@ export function startOpening() {
       } catch (error) { fail('engine', error); engine = null; intro = 'native'; }
     }
     if (completed) return;
-    ready = true; render(0, 0); resume();
+    ready = true; resume();   // the first frame waits for the count (tick)
   }
 
   document.addEventListener('visibilitychange', onVisibility);
