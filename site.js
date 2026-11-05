@@ -110,10 +110,12 @@ function fillPages() {
   button.append(img,text); button.addEventListener('click',()=>inspect(data.exhibitions,index)); $('exhibition-list').append(button);
  });
 }
-fetch('content.json').then(response => {if (!response.ok) throw Error('Content unavailable'); return response.json();}).then(content => {data=content;fillPages();ready=true;if(document.body.dataset.view==='home')startWall();}).catch(error => {$('load-error').hidden=false;console.error(error);});
+const loaded = fetch('content.json').then(response => {if (!response.ok) throw Error('Content unavailable'); return response.json();}).then(content => {data=content;fillPages();ready=true;if(document.body.dataset.view==='home')startWall();return content;});
+loaded.catch(error => {$('load-error').hidden=false;console.error(error);});
 
 opening = startOpening({
  onFlood: () => { document.body.dataset.homeShown = '1'; document.body.dataset.flooding = '1'; showView('home'); },
- onComplete: () => { delete document.body.dataset.flooding; showView(currentView()); }
+ onComplete: () => { delete document.body.dataset.flooding; showView(currentView()); },
+ assets: loaded.then(content => (content.sketches || []).map(item => item.image)),   // the loading page waits for the wall's drawings too
 });
 if (location.hash) { opening.finish(); showView(currentView()); }

@@ -1,244 +1,269 @@
-import { createSurfacing } from './surfacing.js';
-
-// Sequence: liquid-light intro reveals the identity on the dark field (INTRO) → hold → the same liquid surface
-// grows to cover the field and lifts, revealing the finished page beneath (FLOOD: engine reveal phase, canvas
-// turns transparent). The hero drawing surfaces during the flood; the router shows column + satellites under it.
-const INTRO = 2600, HOLD = 1800, FLOOD = 3300; // flood 2.8 -> 3.3 s: the light lingers while the black goes faster
-const FLOOD_START = INTRO + HOLD, FLOOD_END = FLOOD_START + FLOOD;
-const SURFACE_START = FLOOD_START, SURFACE_END = SURFACE_START + 3700;
-const DURATION = Math.max(FLOOD_END, SURFACE_END) + 450;
-const PAPER = '#f4f1ea';
-// Liquid-light strength during the name/fish intro. 1 = Codex study (too bright); 0.55 first pass, 0.25 current.
-const LIGHT_SOFTNESS = 0.25;
+// The opening of the site (storyboard v2, frames 1 to 3, final 5 Nov 2026). The liquid light writes the identity on
+// black (INTRO, 4.5 s), the hold is the loading page (the number under the signature), then the light swims from the
+// fish to the start of the name and lifts the black onto the page (FLOOD). The page under it is Alaa's Immersive study,
+// exact: its own hero intro, the name writing itself and the block arriving, starts the moment the black begins to lift
+// (window.__studyHero.start, defined in the study's script in index.html). pigment.js is unchanged.
+// Review flags on the address: ?stay (park after the count), ?stay=loop (write again and again), ?intro=<ms>,
+// ?fill=<ms> (minimum count time), ?inf (count to 99 then ∞, postponed), ?nogl (no engine: the native fallback).
+const QUERY = new URLSearchParams(location.search);
+const STAY = QUERY.has('stay') ? (QUERY.get('stay') === 'loop' ? 'loop' : 'hold') : null;
+const LOOP_PAUSE = 1200;
+const INTRO = Number(QUERY.get('intro')) > 0 ? Number(QUERY.get('intro')) : 4500;   // 2.6 s until 5 Nov; Alaa: "a bit slower, 4.5 sec"
+// The count takes at least MIN_FILL (eased), never less than the pictures, rests REST at 100 %, then the flood. If the
+// pictures are not all in after GIVE_UP it completes anyway: nobody is left on black.
+const MIN_FILL = Number(QUERY.get('fill')) > 0 ? Number(QUERY.get('fill')) : 2000, REST = 400, GIVE_UP = 20000;
+const INFINITY = QUERY.has('inf');
+const FLOOD = 3300, SETTLE = 450;
+const LIGHT_SOFTNESS = 0.25, DARK = '#080706', PAPER = '#ebeae5';   // the study's paper
+/** The pictures the hold waits for: the three drawings of the study's hero. */
+const HERO_ASSETS = ['assets/sk4.webp', 'assets/sk2.webp', 'assets/sk1.webp'];
 const clamp = (n, a = 0, b = 1) => Math.max(a, Math.min(b, n));
 const smooth = n => { const x = clamp(n); return x * x * (3 - 2 * x); };
 
-/** Run once, then hand the page to its router. Destroy cancels without notifying. */
-export function startOpening({ onComplete = () => {}, onFlood = () => {} } = {}) {
+export function startOpening() {
   const $ = id => document.getElementById(id);
-  const stage = $('stage'), front = $('still-front'), back = $('still-back');
-  const sketch = $('sketch-scene'), content = $('surfacing-content');
-  let flooded = false, uncovered = false;
-  const paperRect = $('sketch-paper'), lightImage = $('sketch-light'), inkImage = $('sketch-ink');
+  const stage = $('stage'), front = $('still-front'), loader = $('loader'), loaderText = loader?.querySelector('.pct');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-  const lifetime = new AbortController();
-  let surface = $('surface'), surfacing = null, engine = null;
-  let completed = false, destroyed = false, ready = false, running = false;
-  let phase = 'preparing', readiness = 'loading', elapsed = 0, raf = 0, anchor = 0, last = 0;
+  let surface = $('surface'), engine = null, ready = false, running = false, completed = false;
+  let elapsed = 0, anchor = 0, last = 0, raf = 0, phase = 'preparing', intro = 'none';
+  let floodStart = Infinity, floodEnd = Infinity, duration = Infinity, fillDoneAt = null, lastSize = [innerWidth, innerHeight];
+  const assets = { total: 0, done: 0, known: false, shown: '' };
+  const box = { frames: 0, floodFrames: 0, worst: 0, failures: [], startedAt: 0 };   // the black box
+  window.__opening = box;
 
-  function signal() {
-    Object.assign(stage.dataset, {
-      phase, readiness, running: String(running), time: elapsed.toFixed(1),
-      progress: (elapsed / DURATION).toFixed(5), reducedMotion: String(reduced.matches),
-    });
+  function signal() { Object.assign(stage.dataset, { phase, intro, time: elapsed.toFixed(0) }); }
+  function fail(label, error) { box.failures.push(`${label}: ${error?.message || error}`); console.warn('Opening:', label, error); }
+  const pointer = () => ({ x: innerWidth * .5, y: innerHeight * .6, vx: 0, vy: 0, down: false, active: false });
+  const heroStart = () => { try { window.__studyHero?.start(); } catch (error) { fail('hero start', error); } };
+
+  /* Scroll lock. The page's scroll state never changes (no overflow switch: Chrome recomputes vw for a layout pass when a
+     scrollbar is created, and the hero's sketches wobbled). Until the full reveal, wheel, touch and the scrolling keys
+     are swallowed and any scroll is put back to the top; the browser's own scroll restoration is off for the run. */
+  const SCROLL_KEYS = new Set(['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' ', 'Spacebar']);
+  const swallow = event => { if (!completed) event.preventDefault(); };
+  const onKey = event => { if (!completed && SCROLL_KEYS.has(event.key)) event.preventDefault(); };
+  const onScroll = () => { if (!completed && (scrollX || scrollY)) scrollTo(0, 0); };
+  function lockScroll() {
+    if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+    scrollTo(0, 0);
+    addEventListener('wheel', swallow, { passive: false }); addEventListener('touchmove', swallow, { passive: false });
+    addEventListener('keydown', onKey); addEventListener('scroll', onScroll, { passive: true });
   }
-  function layers(frontVisible, backVisible, canvasVisible = false, opacity = 1) {
-    front.style.visibility = frontVisible ? 'visible' : 'hidden';
-    front.style.opacity = String(opacity);
-    back.style.visibility = backVisible ? 'visible' : 'hidden';
-    surface.style.visibility = canvasVisible ? 'visible' : 'hidden';
-    front.setAttribute('aria-hidden', String(!frontVisible));
-    back.setAttribute('aria-hidden', String(!backVisible));
+  function unlockScroll() {
+    removeEventListener('wheel', swallow); removeEventListener('touchmove', swallow);
+    removeEventListener('keydown', onKey); removeEventListener('scroll', onScroll);
   }
-  function stop() { running = false; cancelAnimationFrame(raf); raf = 0; }
-  function releaseEngine() {
-    try { engine?.destroy(); } catch (error) { console.warn('Opening cleanup:', error); }
-    engine = null;
+
+  /* The loading page */
+  function trackAssets(urls) {
+    assets.total = urls.length; assets.known = true;
+    for (const url of urls) { const image = new Image(); image.onload = image.onerror = () => { assets.done++; }; image.src = url; }
   }
-  function removeListeners() {
-    document.removeEventListener('visibilitychange', visibility);
-    window.removeEventListener('resize', resize);
-    reduced.removeEventListener('change', motionPreference);
+  /** The number sits under the start of the signature, placed from the box the light writes into. */
+  function placeLoader() {
+    if (!loader) return;
+    const name = $('light-name').getBoundingClientRect(), gap = Math.max(10, name.height * .12);
+    loader.style.left = `${name.left}px`; loader.style.top = `${name.bottom + gap}px`; loader.style.width = `${name.width}px`;
   }
-  /** The drawing's final state: graphite on a transparent layer; the paper is the page itself. */
-  function paperState() {
-    paperRect.setAttribute('opacity', '0'); lightImage.setAttribute('opacity', '0'); inkImage.setAttribute('opacity', '1');
-    back.style.setProperty('--wash', '0');
+  /** Show the count `sinceHold` ms into the hold and return its progress, 0..1. */
+  function loaderProgress(sinceHold) {
+    const byTime = smooth(sinceHold / MIN_FILL), byLoad = assets.known ? assets.done / Math.max(assets.total, 1) : 0;
+    const p = sinceHold >= GIVE_UP ? byTime : Math.min(byTime, byLoad);
+    if (loader) {
+      loader.classList.add('on');
+      const text = INFINITY ? (p >= 1 ? '∞' : `${Math.min(Math.round(p * 100), 99)} %`) : `${Math.round(p * 100)} %`;
+      if (text !== assets.shown) { assets.shown = text; loaderText.textContent = text; }
+    }
+    return p;
   }
-  function fullSketch() {
-    if (surfacing) surfacing.finish();
-    else { content.removeAttribute('filter'); content.setAttribute('opacity', '1'); }
-    paperState();
-    layers(false, true);
+  function hideLoader() { loader?.classList.add('off'); }
+  /**
+   * The count is full and has rested: the flood begins. The page under the canvas turns to paper now, while the canvas
+   * is still opaque (a page that stays black until the end arrives in one frame, Alaa, 5 Nov), and the study's hero
+   * starts writing itself, so the light arrives where the page's own writing begins.
+   */
+  function startFlood(at) {
+    floodStart = at; floodEnd = at + FLOOD; duration = floodEnd + SETTLE;
+    hideLoader();
+    document.body.dataset.phase = 'flood'; document.documentElement.dataset.phase = 'flood';
+    heroStart();
+  }
+
+  /**
+   * The strip outside the page (the scrollbar's space, there from the first frame) shows the root's colour and the
+   * scrollbar. It follows the reveal: the black clears from the strip exactly as it clears from the page's right edge,
+   * and the study's own scrollbar arrives with it (Alaa, 5 Nov: "let it sync with the whole reveal", "the scroll bar is
+   * needed only on reveal"). Frame by frame from here, never a CSS transition on the root: a running transition on the
+   * root made Chrome recompute vw for its duration and the hero's sketches wobbled (5 Nov 2026).
+   */
+  // The bar fades in over the black (the black stays under it), so the strip's progress is the edge's progress exactly:
+  // a strip that also lightened underneath ran ahead of the edge (69 % against 45 %, measured 5 Nov). The bar's track is
+  // opaque when full, so the root's own change to paper at the release happens unseen under it.
+  const STRIP_DARK = 'rgb(8,7,6)';
+  const THUMB = '139,139,139', TRACK = '252,252,252';   // Chrome's own scrollbar on Windows 11, measured on the study, 5 Nov
+  let stripShown = 0;   // 0: black and no bar (the stylesheet's opening state); 1: the study's bar, full
+  function paintStrip(amount, force = false) {
+    const k = clamp(amount);
+    if (k === stripShown && !force) return;   // scrollbar-color is inherited by the whole page: restyle only when it changes
+    stripShown = k;
+    const root = document.documentElement;
+    root.style.backgroundColor = STRIP_DARK;   // held even after the page phase turns the stylesheet's root to paper
+    root.style.scrollbarColor = `rgba(${THUMB},${k.toFixed(3)}) rgba(${TRACK},${k.toFixed(3)})`;
+  }
+  /** Back to the stylesheet: paper, and scrollbar-color:auto, the browser's own bar (the same pixels as the study's). */
+  function releaseStrip() { stripShown = 1; document.documentElement.style.backgroundColor = ''; document.documentElement.style.scrollbarColor = ''; }
+  /**
+   * After a full flood the strip is already the page's. Any other ending (a resize, a deep link, a skip, an engine
+   * failure) finishes it on the site's curve, 0.6 s, exponential ease-out.
+   */
+  function finishStrip() {
+    if (reduced.matches || stripShown >= 1) { releaseStrip(); return; }
+    paintStrip(stripShown, true);   // this frame already: the page phase has just turned the stylesheet's root to paper
+    const from = stripShown, ms = 600, t0 = performance.now();
+    const step = now => {
+      const x = clamp((now - t0) / ms);
+      if (x < 1) { paintStrip(from + (1 - from) * (1 - Math.pow(2, -10 * x))); requestAnimationFrame(step); } else releaseStrip();
+    };
+    requestAnimationFrame(step);
   }
   function complete(reason = 'complete') {
-    if (completed || destroyed) return;
-    completed = true; stop(); lifetime.abort(); removeListeners(); releaseEngine();
-    elapsed = DURATION; phase = 'complete';
-    if (readiness !== 'error') readiness = 'ready';
-    if (reason === 'asset-error') layers(false, false);
-    else fullSketch();
-    stage.dataset.completion = reason; signal();
-    onComplete();
+    if (completed) return;
+    completed = true; running = false; cancelAnimationFrame(raf);
+    try { engine?.destroy(); } catch (error) { fail('destroy', error); }
+    engine = null; phase = 'page'; if (Number.isFinite(duration)) elapsed = duration;
+    unlockScroll();
+    stage.classList.add('done'); surface.style.visibility = 'hidden'; front.style.visibility = 'hidden'; hideLoader();
+    document.body.dataset.phase = 'page'; document.documentElement.dataset.phase = 'page'; stage.dataset.completion = reason;
+    finishStrip();
+    heroStart();
+    try { window.ScrollTrigger?.refresh(); } catch (error) { fail('refresh', error); }
+    signal();
   }
-  function destroy() {
-    if (destroyed) return;
-    destroyed = true; stop(); lifetime.abort(); removeListeners(); releaseEngine();
-    surfacing?.destroy(); surface.style.visibility = 'hidden';
-    phase = 'destroyed'; signal();
+  function showLayers(useCanvas) {
+    front.style.visibility = useCanvas ? 'hidden' : 'visible';
+    surface.style.visibility = useCanvas ? 'visible' : 'hidden';
   }
-  function unavailable(error) {
-    releaseEngine();
-    stage.dataset.intro = 'native';
-    console.warn('Opening uses the native identity before SVG surfacing.', error);
+  function engineFrame(frame, label) {
+    try { engine.frame({ ...frame, pointer: pointer() }); } catch (error) { fail(label, error); engine = null; intro = 'native'; }
   }
-  function render(time, dt = 0) {
-    elapsed = clamp(time, 0, DURATION);
+  /** ?stay: the writing, then its last frame and the count, for as long as the page is open; ?stay=loop writes again and again. */
+  function renderStay(time, dt) {
+    const t = STAY === 'loop' ? time % (INTRO + LOOP_PAUSE) : Math.min(time, INTRO);
+    elapsed = t; phase = t < INTRO ? 'intro' : 'hold';
+    if (STAY === 'hold' && time >= INTRO) loaderProgress(time - INTRO);
+    if (engine) engineFrame({ time: time / 1000, dt, phase: 'intro', progress: Math.min(t / INTRO, 1) }, 'stay frame');
+    showLayers(Boolean(engine));
+  }
+  function render(time, dt) {
+    if (STAY) { renderStay(time, dt); signal(); return; }
+    elapsed = Math.min(time, duration);
     if (elapsed < INTRO) {
       phase = 'intro';
-      if (engine) {
-        try {
-          engine.frame({ time: elapsed / 1000, dt, phase: 'intro', progress: elapsed / INTRO,
-            pointer: { x: innerWidth * .5, y: innerHeight * .6, vx: 0, vy: 0, down: false, active: false } });
-        } catch (error) { unavailable(error); }
-      }
-      layers(!engine, false, Boolean(engine));
-    } else if (elapsed < FLOOD_START) {
-      phase = 'identity'; paperState();
-      // Hold on the canvas, not the SVG layer: one renderer from the first frame to the flood, so the marks never
-      // shift at a hand-off. The SVG identity layer is the no-WebGL fallback only.
-      if (engine) {
-        try {
-          engine.frame({ time: elapsed / 1000, dt, phase: 'intro', progress: 1,
-            pointer: { x: innerWidth * .5, y: innerHeight * .6, vx: 0, vy: 0, down: false, active: false } });
-        } catch (error) { unavailable(error); }
-      }
-      layers(!engine, false, Boolean(engine));
-    } else if (elapsed < FLOOD_END) {
+      if (engine) engineFrame({ time: elapsed / 1000, dt, phase: 'intro', progress: elapsed / INTRO }, 'intro frame');
+      showLayers(Boolean(engine));
+    } else if (elapsed < floodStart) {
+      phase = 'hold';
+      if (loaderProgress(elapsed - INTRO) >= 1 && fillDoneAt === null) fillDoneAt = elapsed;
+      if (fillDoneAt !== null && elapsed >= fillDoneAt + REST) startFlood(elapsed);
+      if (engine) engineFrame({ time: elapsed / 1000, dt, phase: 'intro', progress: 1 }, 'hold frame');
+      showLayers(Boolean(engine));
+    } else if (elapsed < floodEnd) {
       phase = 'flood';
-      if (!flooded) { flooded = true; try { onFlood(); } catch (error) { console.warn('Opening onFlood:', error); } }
-      const p = (elapsed - FLOOD_START) / FLOOD;
-      // With the engine the drawing is whole under the black and the light uncovers it; the fallback surfaces it.
-      if (engine && !uncovered) { uncovered = true; surfacing.finish(); }
-      if (!uncovered) surfacing.render(elapsed - SURFACE_START);
-      if (engine) {
-        try {
-          engine.frame({ time: elapsed / 1000, dt, phase: 'reveal', progress: p,
-            pointer: { x: innerWidth * .5, y: innerHeight * .6, vx: 0, vy: 0, down: false, active: false } });
-        } catch (error) { unavailable(error); }
-      }
-      // Engine: the light sheet covers then lifts, going transparent over the real page and the surfacing hero.
-      // Fallback: the identity layer crossfades away over the page.
-      if (engine) layers(false, true, true); else layers(true, true, false, 1 - smooth(p));
-    } else if (elapsed < SURFACE_END) {
-      phase = 'surfacing';
-      if (!uncovered) surfacing.render(elapsed - SURFACE_START);
-      layers(false, true);
+      const p = (elapsed - floodStart) / FLOOD;
+      if (engine) { engineFrame({ time: elapsed / 1000, dt, phase: 'reveal', progress: p }, 'flood frame'); box.floodFrames++; showLayers(true); }
+      else { front.style.visibility = 'visible'; front.style.opacity = String(1 - smooth(p)); surface.style.visibility = 'hidden'; }   // no engine: the identity crossfades away over the page
+      // The strip clears with the page's right edge: the shader clears the black everywhere on smoothstep(.6, .85, p)
+      // (pigment.js; measured at the edge in a real window, 5 Nov); without the engine the identity fades on smooth(p).
+      paintStrip(engine ? smooth((p - .6) / .25) : smooth(p));
     } else {
-      phase = 'sketch'; fullSketch();
+      // Settle. No engine frame at progress 1: there the shader returns flat opaque paper over a page that is already
+      // fully visible (the hero vanished and popped back, Alaa, 5 Nov). The flood ended transparent; the canvas simply goes.
+      phase = 'settle'; surface.style.visibility = 'hidden'; front.style.visibility = 'hidden'; paintStrip(1);
     }
     signal();
   }
   function tick(now) {
-    if (!running || completed || destroyed) return;
-    const dt = Math.min(.05, Math.max(0, (now - last) / 1000)); last = now;
-    try { render(now - anchor, dt); }
-    catch (error) {
-      console.warn('Opening settled after a rendering error.', error);
-      complete('render-error'); return;
-    }
-    if (elapsed >= DURATION) { complete(); return; }
+    if (!running || completed) return;
+    const raw = Math.max(0, (now - last) / 1000), dt = Math.min(.05, raw);
+    if (raw > 0 && phase === 'flood') { const fps = 1 / raw; if (!box.worst || fps < box.worst) box.worst = Math.round(fps); }
+    last = now; box.frames++;
+    try { render(now - anchor, dt); } catch (error) { fail('render', error); complete('render-error'); return; }
+    if (elapsed >= duration) { complete(); return; }
     raf = requestAnimationFrame(tick);
   }
   function resume() {
-    if (!ready || running || completed || destroyed || document.hidden) return;
-    running = true; last = performance.now(); anchor = last - elapsed;
-    signal(); raf = requestAnimationFrame(tick);
+    if (!ready || running || completed || document.hidden) return;
+    running = true; last = performance.now(); anchor = last - elapsed; raf = requestAnimationFrame(tick);
   }
-  function visibility() {
-    if (document.hidden) { stop(); signal(); }
-    else resume();
+  function onVisibility() { if (document.hidden) { running = false; cancelAnimationFrame(raf); } else resume(); }
+  /** A phone's address bar changes only the height; only a width change ends the opening. */
+  function onResize() {
+    if (!ready) return;
+    const next = [innerWidth, innerHeight], ends = lastSize[0] !== next[0];
+    lastSize = next;
+    if (ends) complete('resize');
   }
-  function resize() { complete('resize'); }
-  function motionPreference() { if (reduced.matches) complete('reduced-motion'); }
-
+  function onMotionPreference() { if (reduced.matches) complete('reduced-motion'); }
+  /** A tab opened in the background may have no size yet; the opening waits for one. */
+  function whenViewportReady(callback) {
+    const okay = () => innerWidth > 0 && innerHeight > 0 && !document.hidden;
+    if (okay()) { callback(); return; }
+    const check = () => { if (!okay()) return; window.removeEventListener('resize', check); document.removeEventListener('visibilitychange', check); callback(); };
+    window.addEventListener('resize', check); document.addEventListener('visibilitychange', check);
+  }
   function loadImage(source) {
     return new Promise((resolve, reject) => {
-      const image = new Image();
-      let timeout;
-      function clean() {
-        clearTimeout(timeout); image.onload = image.onerror = null;
-        lifetime.signal.removeEventListener('abort', abort);
-      }
-      function fail(message) { clean(); reject(new Error(message)); }
-      function abort() { fail('Opening cancelled.'); }
-      if (lifetime.signal.aborted) { abort(); return; }
-      image.onload = () => { clean(); resolve(image); };
-      image.onerror = () => fail('Opening image could not load.');
-      lifetime.signal.addEventListener('abort', abort, { once: true });
-      timeout = setTimeout(() => fail('Opening image timed out.'), 10000);
+      const image = new Image(); const timeout = setTimeout(() => reject(new Error('timed out')), 10000);
+      image.onload = () => { clearTimeout(timeout); resolve(image); };
+      image.onerror = () => { clearTimeout(timeout); reject(new Error('could not load')); };
       image.src = source;
     });
   }
-  async function textures(image) {
+  /** Front texture: the identity exactly as laid out on the black field. Back texture: paper (never shown: the flood ends transparent). */
+  async function textures() {
     const w = innerWidth, h = innerHeight, dpr = Math.min(devicePixelRatio || 1, 2);
     const frontCanvas = document.createElement('canvas'), backCanvas = document.createElement('canvas');
-    for (const canvas of [frontCanvas, backCanvas]) {
-      canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
-      const context = canvas.getContext('2d');
-      context.fillStyle = '#080706'; context.fillRect(0, 0, canvas.width, canvas.height);
-    }
-    // Preserve the v09/v11 identity snapshot, including its full-viewport placement.
-    const identity = ['name', 'fish'].map(id => {
-      const element = $(id), box = element.getBoundingClientRect(), svg = element.querySelector('svg');
-      return `<svg x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" viewBox="${svg.getAttribute('viewBox')}">${svg.innerHTML}</svg>`;
+    for (const canvas of [frontCanvas, backCanvas]) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
+    const identity = ['light-name', 'light-fish'].map(id => {
+      const element = $(id), rect = element.getBoundingClientRect(), svg = element.querySelector('svg');
+      return `<svg x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" viewBox="${svg.getAttribute('viewBox')}">${svg.innerHTML}</svg>`;
     }).join('');
-    const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${frontCanvas.width}" height="${frontCanvas.height}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="#080706"/>${identity}</svg>`;
+    const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${frontCanvas.width}" height="${frontCanvas.height}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="${DARK}"/>${identity}</svg>`;
     const url = URL.createObjectURL(new Blob([source], { type: 'image/svg+xml' }));
-    try {
-      const raster = await loadImage(url);
-      frontCanvas.getContext('2d').drawImage(raster, 0, 0);
-    } finally { URL.revokeObjectURL(url); }
-    // The flood reveals plain paper; the drawings are seen through the light as it swims (pigment.js swim).
-    const context = backCanvas.getContext('2d');
-    context.fillStyle = PAPER; context.fillRect(0, 0, backCanvas.width, backCanvas.height);
-    // The flood's light starts at the fish and crosses the sketch back toward the menu side, uncovering the drawings
-    // as it goes, but never over the menu: the left column in landscape, the top bar in portrait (same sizes as site.css).
-    const fish = $('fish').getBoundingClientRect(), sketch = $('sketch-scene').getBoundingClientRect();
-    const portrait = matchMedia('(orientation: portrait)').matches;
-    const flood = { from: [fish.left + fish.width / 2, fish.top + fish.height / 2],
-      to: [sketch.left + sketch.width * 0.15, sketch.top + sketch.height * 0.45] };
-    const menu = portrait ? { x0: 0, y0: 0, x1: w, y1: h * 0.15 } : { x0: 0, y0: 0, x1: Math.max(w * 0.2, 220), y1: h };
-    return { frontCanvas, backCanvas, w, h, dpr, glow: LIGHT_SOFTNESS, flood, menu };
+    try { frontCanvas.getContext('2d').drawImage(await loadImage(url), 0, 0); } finally { URL.revokeObjectURL(url); }
+    const back = backCanvas.getContext('2d'); back.fillStyle = PAPER; back.fillRect(0, 0, backCanvas.width, backCanvas.height);
+    // The light swims from the fish to the start of the study's name, where the page's own writing begins.
+    const fish = $('light-fish').getBoundingClientRect();
+    const name = (document.querySelector('.hero .name') || $('light-name')).getBoundingClientRect();
+    const flood = { from: [fish.left + fish.width / 2, fish.top + fish.height / 2], to: [name.left + name.width * .04, name.top + name.height * .5] };
+    return { frontCanvas, backCanvas, w, h, dpr, glow: LIGHT_SOFTNESS, flood, menu: null };
   }
   async function prepare() {
-    let image;
-    try {
-      image = await loadImage(new URL('./assets/graphite-extraction-v01.png', import.meta.url).href);
-    } catch (error) {
-      if (completed || destroyed) return;
-      readiness = 'error'; console.warn('Opening skipped because its sketch could not load.', error);
-      complete('asset-error'); return;
+    if (completed) return;
+    box.startedAt = Math.round(performance.now()); lastSize = [innerWidth, innerHeight];
+    trackAssets(HERO_ASSETS); placeLoader();
+    if (QUERY.has('nogl') || typeof window.makePigment !== 'function') intro = 'native';
+    else {
+      try {
+        const input = await textures();
+        const replacement = document.createElement('canvas'); replacement.id = 'surface'; replacement.setAttribute('aria-hidden', 'true');
+        surface.replaceWith(replacement); surface = replacement;
+        engine = window.makePigment(surface, input); intro = 'pigment';
+      } catch (error) { fail('engine', error); engine = null; intro = 'native'; }
     }
-    if (completed || destroyed) return;
-    try {
-      const input = await textures(image);
-      if (completed || destroyed) return;
-      const replacement = document.createElement('canvas');
-      replacement.id = 'surface'; replacement.setAttribute('aria-hidden', 'true');
-      surface.replaceWith(replacement); surface = replacement;
-      surface.style.visibility = 'hidden';
-      engine = window.makePigment(surface, input);
-      stage.dataset.intro = 'pigment';
-    } catch (error) {
-      if (completed || destroyed) return;
-      unavailable(error);
-    }
-    if (completed || destroyed) return;
-    ready = true; readiness = 'ready'; render(0); resume();
+    if (completed) return;
+    ready = true; render(0, 0); resume();
   }
 
-  layers(true, false); signal();
-  document.addEventListener('visibilitychange', visibility);
-  window.addEventListener('resize', resize);
-  reduced.addEventListener('change', motionPreference);
-  try { surfacing = createSurfacing(sketch, content); }
-  catch (error) {
-    console.warn('Opening skipped because its surfacing setup failed.', error);
-    queueMicrotask(() => complete('setup-error'));
-    return { finish: () => complete('skipped'), destroy };
-  }
+  document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('resize', onResize);
+  reduced.addEventListener('change', onMotionPreference);
+  if (STAY) stage.dataset.stay = STAY;
+  signal();
   if (reduced.matches) queueMicrotask(() => complete('reduced-motion'));
-  else prepare();
-  return { finish: () => complete('skipped'), destroy };
+  else if (location.hash && !STAY) queueMicrotask(() => complete('hash'));   // a deep link goes straight to its section
+  else { lockScroll(); whenViewportReady(prepare); }
+  return { finish: (reason = 'skipped') => complete(reason) };
 }
+
+startOpening();

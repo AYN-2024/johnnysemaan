@@ -36,3 +36,13 @@ body[data-view=opening] #site-menu{visibility:hidden}
 @media(orientation:portrait){.burger-panel{transform-origin:var(--from-x,100%) var(--from-y,0);transform:scale(.18);opacity:0;visibility:hidden;transition:transform 400ms var(--spring),opacity 220ms ease-in 120ms,visibility 0s linear 400ms}
 .burger-panel[data-open]{transform:none;opacity:1;visibility:visible;transition:transform 400ms var(--spring),opacity 160ms ease-out,visibility 0s}}
 @media(prefers-reduced-motion:reduce){.burger-panel{transform:none!important;transition:opacity 200ms ease,visibility 0s linear 200ms!important}.burger-panel[data-open]{transition:opacity 200ms ease,visibility 0s!important}}
+
+/* The loading page (Alaa, 5 Nov 2026, storyboard v2 frame 2, final): the percentage under the start of the signature,
+   no line. opening.js places it from the signature's box and shows it for the hold. Nothing pops: it fades in the
+   moment the writing ends, fully in within 0.6 s, exponential ease-out. */
+#loader{position:absolute;left:0;top:0;width:0;height:1px;visibility:hidden;z-index:4;pointer-events:none;transition:opacity .45s ease-in,visibility 0s .45s}
+#loader.on{visibility:visible}
+#loader.off{opacity:0;visibility:hidden!important}
+#loader .pct{position:absolute;left:0;top:10px;font-size:11px;line-height:1;letter-spacing:.14em;color:rgba(239,233,216,.7);font-variant-numeric:tabular-nums;opacity:0;transform:translateY(4px);transition:opacity .5s ease-out,transform .6s cubic-bezier(.16,1,.3,1)}
+#loader.on .pct{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){#loader .pct{transition:none}}
