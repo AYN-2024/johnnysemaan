@@ -46,11 +46,36 @@
   window.__afterCount = function (job) { if (state.completeAt !== null) job(); else state.waiting.push(job); };
   // What the first screen does not show waits for the count (the build marks it): pictures further down
   // (data-defer-src) and the statement's Arabic face (data-defer-href). Also once the page is fully read, for anything
-  // the reader had not reached when the count completed.
+  // the reader had not reached when the count completed. Any hero drawing still waiting in the chain goes too.
   function releaseDeferred() {
     Array.prototype.forEach.call(document.querySelectorAll('img[data-defer-src]'), function (image) { image.src = image.getAttribute('data-defer-src'); image.removeAttribute('data-defer-src'); });
     Array.prototype.forEach.call(document.querySelectorAll('link[data-defer-href]'), function (link) { link.href = link.getAttribute('data-defer-href'); link.removeAttribute('data-defer-href'); });
+    Array.prototype.forEach.call(document.querySelectorAll('img[data-chain-src]'), function (image) { image.src = image.getAttribute('data-chain-src'); image.removeAttribute('data-chain-src'); });
   }
+  // The hero's drawings, one after another (Alaa, 5 Nov: "one after another"): side by side they shared the line and all
+  // finished within half a second, so the number waited on 10 % for ~5 s on 3G and then rushed. In turn, each one
+  // finishes on its own and the number climbs in steps. The first is asked for from the head (preload); each next one
+  // the moment the previous has arrived; each goes into the hero (data-chain-src, under the black) as it arrives.
+  var chain = [], chained = {};
+  try { chain = JSON.parse(loader.getAttribute('data-chain')) || []; } catch (error) { state.chainError = String(error); }
+  function placeChained() {
+    Array.prototype.forEach.call(document.querySelectorAll('img[data-chain-src]'), function (image) {
+      var file = image.getAttribute('data-chain-src');
+      if (chained[new URL(file, document.baseURI).href]) { image.src = file; image.removeAttribute('data-chain-src'); }
+    });
+  }
+  function nextInChain(index) {
+    if (index >= chain.length) return;
+    var url = new URL(chain[index], document.baseURI).href, image = new Image();
+    image.onload = image.onerror = function (event) {
+      chained[url] = true;
+      if (event.type === 'error') arrived(url);   // a failed drawing is finished too: nobody waits for it
+      placeChained(); nextInChain(index + 1);
+    };
+    image.src = chain[index];
+  }
+  nextInChain(0);
+  document.addEventListener('DOMContentLoaded', placeChained);
   function release() {
     releaseDeferred();
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', releaseDeferred);
