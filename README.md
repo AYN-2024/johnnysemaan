@@ -12,6 +12,7 @@ Reduced motion, or a URL with a hash, skips the opening. A hidden tab pauses it.
 
 ## Files
 - `index.html` — built from the study (see above). `opening.css` — the stage, the identity's positions, the loading count (inlined by the build). `count.js` — the count (inlined by the build). `opening.js` — the opening and the swim. `pigment.js` — the liquid-light engine, unchanged.
+- `landing.css`, `landing.js` — frame 4, the landing (inlined by the build): the nav on the paper with Paintings, Exhibitions, Workshops (no section yet, not a link), Contact (the footer, `#contact`); Instagram and Facebook top right on big screens (Facebook not linked until its address comes); the small signature only when the big name is not fully on screen; on phones the burger and the four words in Johnny's hand on the opening's black; the line under the name “Visual Artist. Beirut, current year.” and “Fourteen works · Acrylic on canvas” in a stand-in hand (Caveat), plain text.
 - `assets/` — the study's drawings and works (`sk1–5.webp`, `w01–14.jpg`, `exhibition.jpg`, `name.svg`) beside the live site's files.
 - Not used by the page any more, kept until frames 6 to 10 of the storyboard decide their fate: `site.js`, `wall.js`, `rotate.js`, `surfacing.js`, `site.css`, `composition.css`, `content.json`, `assets/sketches/`, `assets/paintings/`, `assets/exhibitions/`, `assets/graphite-extraction-v01.png`.
 
