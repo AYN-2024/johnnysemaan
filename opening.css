@@ -15,6 +15,11 @@ html{background:#080706;scrollbar-color:transparent transparent}   /* no CSS tra
 html[data-phase=page]{background:#ebeae5;scrollbar-color:auto}
 body[data-phase=opening]{background:#080706}   /* paper from the first flood frame, under the still-opaque canvas */
 #stage{position:fixed;inset:0;z-index:60;pointer-events:none}   /* above the study's nav (40), below its cursor (90) */
+/* Black from the very first paint (Alaa, 5 Nov: "the moment I press enter .. all is showing then it disappears"; filmed:
+   the study's hero, block, nav and line painted on black for 0.5 to 1.4 s, until opening.js starts after the CDN scripts).
+   The stage itself is the black until the light begins to lift it: startFlood turns the body's phase to flood in the same
+   frame as the first flood frame, and from there the canvas is the black. */
+body[data-phase=opening] #stage{background:#080706}
 #stage.done{display:none}
 #stage .layer{position:absolute;inset:0;background:#080706}
 #still-front{z-index:2;visibility:hidden}   /* the native fallback and the texture source; opening.js shows it when there is no engine */

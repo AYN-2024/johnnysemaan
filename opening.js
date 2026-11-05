@@ -15,8 +15,10 @@ const MIN_FILL = Number(QUERY.get('fill')) > 0 ? Number(QUERY.get('fill')) : 200
 const INFINITY = QUERY.has('inf');
 const FLOOD = 3300, SETTLE = 450;
 const LIGHT_SOFTNESS = 0.25, DARK = '#080706', PAPER = '#ebeae5';   // the study's paper
-/** The pictures the hold waits for: the three drawings of the study's hero. */
-const HERO_ASSETS = ['assets/sk4.webp', 'assets/sk2.webp', 'assets/sk1.webp'];
+/** What the count counts when the page carries no list (the build writes the landing's files and real sizes on #loader). */
+const HERO_ASSETS = [['assets/sk4.webp', 1], ['assets/sk2.webp', 1], ['assets/sk1.webp', 1]];
+const FOLLOW = 0.12;        // s: how closely the shown number follows the true one (it flows, never runs ahead)
+const FONT_WAIT = 6000;     // ms: the count stops waiting for the fonts' stylesheet after this (blocked or failed)
 const clamp = (n, a = 0, b = 1) => Math.max(a, Math.min(b, n));
 const smooth = n => { const x = clamp(n); return x * x * (3 - 2 * x); };
 
@@ -27,8 +29,8 @@ export function startOpening() {
   let surface = $('surface'), engine = null, ready = false, running = false, completed = false;
   let elapsed = 0, anchor = 0, last = 0, raf = 0, phase = 'preparing', intro = 'none';
   let floodStart = Infinity, floodEnd = Infinity, duration = Infinity, fillDoneAt = null, lastSize = [innerWidth, innerHeight];
-  const assets = { total: 0, done: 0, known: false, shown: '' };
-  const box = { frames: 0, floodFrames: 0, worst: 0, failures: [], startedAt: 0 };   // the black box
+  const assets = { total: 0, done: 0, known: false, fonts: false, shown: 0, text: '' };
+  const box = { frames: 0, floodFrames: 0, worst: 0, failures: [], startedAt: 0, count: assets };   // the black box
   window.__opening = box;
 
   function signal() { Object.assign(stage.dataset, { phase, intro, time: elapsed.toFixed(0) }); }
@@ -54,10 +56,29 @@ export function startOpening() {
     removeEventListener('keydown', onKey); removeEventListener('scroll', onScroll);
   }
 
-  /* The loading page */
-  function trackAssets(urls) {
-    assets.total = urls.length; assets.known = true;
-    for (const url of urls) { const image = new Image(); image.onload = image.onerror = () => { assets.done++; }; image.src = url; }
+  /* The loading page. It counts what the landing needs, by real size (Alaa, 5 Nov: "a minimum of 2 secs loading, but if
+     it needs more let the loader show it .. let it be accurate"): the hero's drawings and the signature (sizes written by
+     the build) and the fonts. */
+  function landingList() {
+    try { const list = JSON.parse(loader?.dataset.assets || 'null'); if (Array.isArray(list) && list.length) return list; }
+    catch (error) { fail('count list', error); }
+    return HERO_ASSETS;
+  }
+  function trackAssets(list) {
+    assets.total = list.reduce((sum, [, bytes]) => sum + bytes, 0); assets.known = true;
+    for (const [url, bytes] of list) { const image = new Image(); image.onload = image.onerror = () => { assets.done += bytes; }; image.src = url; }
+    whenFontsReady().then(() => { assets.fonts = true; });
+  }
+  /** The study's fonts: their stylesheet loads without holding the first paint (the build); then the faces the hero uses. */
+  function whenFontsReady() {
+    const link = document.getElementById('study-fonts');
+    const sheet = !link || link.media === 'all' ? Promise.resolve() : new Promise(resolve => {
+      link.addEventListener('load', resolve, { once: true }); link.addEventListener('error', resolve, { once: true });
+      setTimeout(resolve, FONT_WAIT);
+    });
+    return sheet
+      .then(() => document.fonts ? Promise.all(['300 16px Archivo', '600 16px Archivo'].map(face => document.fonts.load(face))) : null)
+      .catch(error => fail('fonts', error));
   }
   /** The number sits under the start of the signature, placed from the box the light writes into. */
   function placeLoader() {
@@ -65,14 +86,24 @@ export function startOpening() {
     const name = $('light-name').getBoundingClientRect(), gap = Math.max(10, name.height * .12);
     loader.style.left = `${name.left}px`; loader.style.top = `${name.bottom + gap}px`; loader.style.width = `${name.width}px`;
   }
-  /** Show the count `sinceHold` ms into the hold and return its progress, 0..1. */
-  function loaderProgress(sinceHold) {
-    const byTime = smooth(sinceHold / MIN_FILL), byLoad = assets.known ? assets.done / Math.max(assets.total, 1) : 0;
-    const p = sinceHold >= GIVE_UP ? byTime : Math.min(byTime, byLoad);
+  /**
+   * Show the count `sinceHold` ms into the hold and return its progress, 0..1. The true value is the smaller of the
+   * 2-second clock and what has really arrived (bytes; 99 % at most until the fonts are in); the shown number follows it
+   * (FOLLOW) so it flows and never jumps, never runs ahead of it, and is rounded down: 100 only when everything is in.
+   * After GIVE_UP it completes on the clock: nobody is left on black.
+   */
+  function loaderProgress(sinceHold, dt = 0) {
+    const byTime = smooth(sinceHold / MIN_FILL);
+    let byLoad = assets.known ? assets.done / Math.max(assets.total, 1) : 0;
+    if (!assets.fonts) byLoad = Math.min(byLoad, .99);
+    const target = sinceHold >= GIVE_UP ? byTime : Math.min(byTime, byLoad);
+    if (target > assets.shown) assets.shown += (target - assets.shown) * (dt > 0 ? 1 - Math.exp(-dt / FOLLOW) : 0);
+    if (target >= 1 && assets.shown > .995) assets.shown = 1;
+    const p = assets.shown;
     if (loader) {
       loader.classList.add('on');
-      const text = INFINITY ? (p >= 1 ? '∞' : `${Math.min(Math.round(p * 100), 99)} %`) : `${Math.round(p * 100)} %`;
-      if (text !== assets.shown) { assets.shown = text; loaderText.textContent = text; }
+      const text = INFINITY ? (p >= 1 ? '∞' : `${Math.min(Math.floor(p * 100), 99)} %`) : `${Math.floor(p * 100)} %`;
+      if (text !== assets.text) { assets.text = text; loaderText.textContent = text; }
     }
     return p;
   }
@@ -112,20 +143,33 @@ export function startOpening() {
   }
   /** Back to the stylesheet: paper, and scrollbar-color:auto, the browser's own bar (the same pixels as the study's). */
   function releaseStrip() { stripShown = 1; document.documentElement.style.backgroundColor = ''; document.documentElement.style.scrollbarColor = ''; }
+  let stripRaf = 0;
+  /** The strip from where it is to `to` (0 black, 1 the study's bar) on the site's curve, then `done`. */
+  function animateStrip(to, ms, done) {
+    cancelAnimationFrame(stripRaf);
+    paintStrip(stripShown, true);   // this frame already: the inline black holds the root, whatever the stylesheet says now
+    const from = stripShown, t0 = performance.now();
+    const step = now => {
+      const x = clamp((now - t0) / ms);
+      paintStrip(from + (to - from) * (1 - Math.pow(2, -10 * x)));
+      if (x < 1) stripRaf = requestAnimationFrame(step); else done?.();
+    };
+    stripRaf = requestAnimationFrame(step);
+  }
   /**
    * After a full flood the strip is already the page's. Any other ending (a resize, a deep link, a skip, an engine
    * failure) finishes it on the site's curve, 0.6 s, exponential ease-out.
    */
   function finishStrip() {
     if (reduced.matches || stripShown >= 1) { releaseStrip(); return; }
-    paintStrip(stripShown, true);   // this frame already: the page phase has just turned the stylesheet's root to paper
-    const from = stripShown, ms = 600, t0 = performance.now();
-    const step = now => {
-      const x = clamp((now - t0) / ms);
-      if (x < 1) { paintStrip(from + (1 - from) * (1 - Math.pow(2, -10 * x))); requestAnimationFrame(step); } else releaseStrip();
-    };
-    requestAnimationFrame(step);
+    animateStrip(1, 600, releaseStrip);
   }
+
+  /* No fade on leaving (tried 5 Nov, measured and removed): pressing Enter on the open site, the page receives its
+     leaving signal 13 ms after Enter, but Chrome draws not one more frame of it before the next page arrives, so nothing
+     it does then reaches the screen; Chrome shows its last frame of this page until the next page's first paint. What
+     the site controls is that its own first paint is black at once (the build: black in the first bytes, nothing
+     holding the first paint). */
   function complete(reason = 'complete') {
     if (completed) return;
     completed = true; running = false; cancelAnimationFrame(raf);
@@ -150,7 +194,7 @@ export function startOpening() {
   function renderStay(time, dt) {
     const t = STAY === 'loop' ? time % (INTRO + LOOP_PAUSE) : Math.min(time, INTRO);
     elapsed = t; phase = t < INTRO ? 'intro' : 'hold';
-    if (STAY === 'hold' && time >= INTRO) loaderProgress(time - INTRO);
+    if (STAY === 'hold' && time >= INTRO) loaderProgress(time - INTRO, dt);
     if (engine) engineFrame({ time: time / 1000, dt, phase: 'intro', progress: Math.min(t / INTRO, 1) }, 'stay frame');
     showLayers(Boolean(engine));
   }
@@ -163,7 +207,7 @@ export function startOpening() {
       showLayers(Boolean(engine));
     } else if (elapsed < floodStart) {
       phase = 'hold';
-      if (loaderProgress(elapsed - INTRO) >= 1 && fillDoneAt === null) fillDoneAt = elapsed;
+      if (loaderProgress(elapsed - INTRO, dt) >= 1 && fillDoneAt === null) fillDoneAt = elapsed;
       if (fillDoneAt !== null && elapsed >= fillDoneAt + REST) startFlood(elapsed);
       if (engine) engineFrame({ time: elapsed / 1000, dt, phase: 'intro', progress: 1 }, 'hold frame');
       showLayers(Boolean(engine));
@@ -241,7 +285,7 @@ export function startOpening() {
   async function prepare() {
     if (completed) return;
     box.startedAt = Math.round(performance.now()); lastSize = [innerWidth, innerHeight];
-    trackAssets(HERO_ASSETS); placeLoader();
+    trackAssets(landingList()); placeLoader();
     if (QUERY.has('nogl') || typeof window.makePigment !== 'function') intro = 'native';
     else {
       try {

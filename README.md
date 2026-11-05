@@ -21,6 +21,9 @@ Reduced motion, or a URL with a hash, skips the opening. A hidden tab pauses it.
 ## The scrollbar and the root
 The page is the study's layout from the first frame: it scrolls from the first frame (no overflow switch, ever), so the study's own scrollbar holds its space from the first frame. No `scrollbar-gutter` and no `::-webkit-scrollbar` rules: in Chrome either one changes what `100vw` measures and the hero's sketches land 5.7 px away from the study's. The opening holds the page at the top by swallowing wheel, touch and keys until the full reveal. Through the opening the bar is invisible over the black root; during the flood `opening.js` (`paintStrip`) fades the study's scrollbar in on the light's own clear curve, in step with the page's right edge, then hands it back to the browser (`scrollbar-color: auto`, the study's pixels). Never a CSS transition or animation on the root: while one runs, Chrome resolves `vw` without the scrollbar and anything placed in `vw` wobbles. `scrollbar-color` is inherited: an inner scrolling element (the frame 7 detail view) sets its own.
 
+## The first moment and the count
+The page is black from the first bytes: `html{background:#080706}` right after the charset, `opening.css` inline in `index.html` (`opening.css` is its source), the font stylesheet loads without holding the first paint, and the stage is black until the flood. The count counts the landing's files by real size (`data-assets` on `#loader`, written by the build) and the fonts: at least 2 s, as long as the line needs, never above what has arrived.
+
 ## The identity
 The name and the fish are the refined drawings of 5 November 2026 (`../identity/refined-v01-2026-11-05/`), shapes only: the build puts them in the light's boxes (name `#e2ded4`, fish `#c2baa8`, the identity lock's colours), in the study's hero name (same box, same writing mask) and in `assets/name.svg`, the signature top left (the study's box and ink).
 
