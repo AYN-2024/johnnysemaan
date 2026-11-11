@@ -159,7 +159,7 @@
     begin();
   }
 
-  /* 6. One painting per screen, and the page stops on it (Johnny's note; Alaa, 11 Nov: "we will have an auto flip .. or
+  /* 6. One painting per screen, and the page stops on it, and on every section (Johnny's note; Alaa, 11 Nov: "we will have an auto flip .. or
      let us say an auto scroll auto stop on the perfect fit for the painting"). landing.css gives every painting one
      screen and one place. Here: when the scrolling has stopped among the paintings, the page glides on to the painting
      it was heading for. From a painting it rested on, a push of 60 px (or 8 % of the screen if that is less) flips to
@@ -179,10 +179,32 @@
   var wall = document.getElementById('wall');
   var works = wall ? Array.prototype.slice.call(wall.querySelectorAll('.work')) : [];
   if (works.length > 1 && getComputedStyle(works[0]).display === 'flex') {   // only with the one-per-screen layout
-    var root = document.documentElement, tops = [], lastY = scrollY, lastWidth = innerWidth, heading = 0, pending = 0, touching = false, keyed = false, glide = null;
+    var root = document.documentElement, lastY = scrollY, lastWidth = innerWidth, heading = 0, pending = 0, touching = false, keyed = false, glide = null;
     var GLIDE = 0.9;   // s, for a whole screen
     var log = window.__wall = { settles: 0, at: -1, to: null, gliding: false };
-    var measure = function () { var y = scrollY; tops = works.map(function (work) { return Math.round(work.getBoundingClientRect().top + y); }); };
+    /* The stops (Alaa, 11 Nov: "yes make the auto scroll on every section"): the top of every section and of every
+       painting. A section taller than the screen (the statement; the artist on a low screen) has two: its top, and
+       the place where its end meets the bottom of the screen; between those two the visitor reads freely and nothing
+       pulls. Between two stops the page goes on to the one it was heading for: a push of 60 px (or 8 % of the screen
+       if that is less) is enough, a smaller one returns; with the keyboard any move counts. */
+    var worksSection = document.querySelector('.works');
+    var parts = [document.querySelector('.hero'), document.querySelector('.about'), document.querySelector('.statement'), worksSection]
+      .concat(works, [document.querySelector('.sketch'), document.querySelector('.exhib'), document.querySelector('footer')]).filter(Boolean);
+    var stops = [];
+    var measure = function () {
+      var y = scrollY, most = Math.max(0, document.documentElement.scrollHeight - innerHeight), list = [];
+      parts.forEach(function (part) {
+        var box = part.getBoundingClientRect(), top = Math.min(most, Math.round(box.top + y));
+        // The paintings' section is not one long read: its own stops are its heading and each painting.
+        var last = part === worksSection ? top : Math.min(most, Math.max(top, Math.round(box.top + y + box.height - innerHeight)));
+        var tall = last - top > 40;
+        list.push({ y: top, free: tall });
+        if (tall) list.push({ y: last, free: false });
+      });
+      list.sort(function (a, b) { return a.y - b.y; });
+      stops = list.filter(function (stop, index) { return index === 0 || stop.y - list[index - 1].y > 8; });
+      log.stops = stops.length;
+    };
     // Among the paintings: the view's top is between half a screen before the first one and half a screen past the last.
     var among = function () {
       var half = innerHeight / 2;
@@ -191,8 +213,8 @@
     var jump = function (y) { window.scrollTo({ top: y, behavior: 'instant' }); };
     var stop = function () { if (glide) { glide.kill(); glide = null; log.gliding = false; } };
     var go = function (index) {
-      log.at = index; log.to = tops[index];
-      var from = scrollY, to = tops[index], far = Math.abs(to - from);
+      var from = scrollY, to = stops[index].y, far = Math.abs(to - from);
+      log.at = index; log.to = to;
       if (far < 2) return;
       log.settles++;
       if (!window.gsap) { window.scrollTo({ top: to, behavior: 'smooth' }); return; }   // no GSAP: the browser's own
@@ -208,23 +230,17 @@
       pending = 0;
       if (glide || touching || reduced.matches || document.body.dataset.phase !== 'page' || document.body.style.overflow === 'hidden') return;   // hidden: a painting is open alone
       measure();
-      var y = scrollY, end = tops.length - 1, flip = keyed ? 2 : Math.min(60, innerHeight * 0.08), from = log.at;
+      var y = scrollY, flip = keyed ? 2 : Math.min(60, innerHeight * 0.08), i = 0, from = log.at;
       keyed = false;
-      if (!among()) { log.at = -1; return; }
-      // From a painting it was resting on, less than a screen away: a real push flips to the next one that way, a
-      // small one returns; a push away from the first (up) or the last (down) leaves the paintings freely.
-      if (from >= 0 && Math.abs(y - tops[from]) < innerHeight) {
-        var moved = y - tops[from], next = from + (moved > 0 ? 1 : -1);
-        if (Math.abs(moved) <= flip) go(from);
-        else if (next < 0 || next > end) log.at = -1;
-        else go(next);
-        return;
-      }
-      // Arriving from outside, or after a long run: the painting that fills most of the view.
-      if (y < tops[0]) { if (heading > 0) go(0); else log.at = -1; return; }
-      if (y > tops[end]) { if (heading < 0) go(end); else log.at = -1; return; }
-      var k = 0; while (k < end && tops[k + 1] <= y) k++;
-      go(k === end || y - tops[k] < tops[k + 1] - y ? k : k + 1);
+      while (i < stops.length - 1 && stops[i + 1].y <= y + 1) i++;
+      if (Math.abs(y - stops[i].y) < 2 || i === stops.length - 1) { log.at = i; return; }   // resting on a stop
+      if (stops[i].free) { log.at = -1; return; }                                          // reading inside a tall section
+      var before = y - stops[i].y, after = stops[i + 1].y - y;
+      var to = heading > 0 ? (before > flip ? i + 1 : i) : heading < 0 ? (after > flip ? i : i + 1) : (before < after ? i : i + 1);
+      // One gesture never skips a stop: from the stop it was resting on, less than a screen away, at most the next one
+      // (measured: a strong scroll from the paintings' heading passed painting 1, which is close under it).
+      if (from >= 0 && from < stops.length && Math.abs(y - stops[from].y) < innerHeight) to = Math.max(from - 1, Math.min(from + 1, to));
+      go(to);
     };
     var later = function () { clearTimeout(pending); pending = setTimeout(settle, 90); };
     addEventListener('scroll', function (event) {
@@ -240,7 +256,9 @@
     // The visitor's own hand always wins: the wheel, a finger or a key stops a glide; the page settles again after it.
     addEventListener('wheel', stop, { passive: true });
     addEventListener('touchstart', function () { touching = true; stop(); clearTimeout(pending); pending = 0; }, { passive: true });
-    var lifted = function () { touching = false; later(); };
+    // When the finger lifts the page may still be running on: where the browser says when scrolling has ended, that
+    // is the moment; elsewhere the quiet after the last scroll is (the scroll handler above).
+    var lifted = function () { touching = false; if (!('onscrollend' in window)) later(); };
     addEventListener('touchend', lifted, { passive: true }); addEventListener('touchcancel', lifted, { passive: true });
     addEventListener('keydown', function (event) { if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', ' ', 'Spacebar', 'Home', 'End'].indexOf(event.key) >= 0) { keyed = true; stop(); } });
     // A phone's address bar changes only the height (in the middle of a scroll): only a new width settles again.
