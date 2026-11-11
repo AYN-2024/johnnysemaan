@@ -45,7 +45,7 @@
     panel.innerHTML =
       '<a href="#works"><img src="assets/painting-lettering-paper.svg" alt="Paintings" style="width:56vw"></a>' +
       '<a href="#exhibition"><img src="assets/exhibitions-lettering-paper.svg" alt="Exhibitions" style="width:60vw"></a>' +
-      '<a class="hand" aria-disabled="true">Workshops</a>' +
+      '<a class="hand" href="#sketchbook">Sketches</a>' +
       '<a class="hand" href="#contact">Contact</a>';
     panel.addEventListener('click', function (event) {
       var link = event.target.closest('a[href]');
@@ -101,10 +101,10 @@
     var arrived = function (image) { return image.complete && image.naturalWidth > 0; };
     var draw = function (list) { return list[Math.floor(Math.random() * list.length)]; };
     /** A place for this drawing, drawn at random inside the hero; left as the stylesheet has it if there is no room. */
-    var place = function (image) {
+    var settleIn = function (image) {
       var box = hero.getBoundingClientRect(), size = image.getBoundingClientRect(), w = size.width, h = size.height;
       var edge = 16, minY = navHeight() + 8, maxX = document.documentElement.clientWidth - w - edge, maxY = box.height - h - 8;
-      if (!(w > 0 && h > 0) || maxX < edge || maxY < minY) return;
+      if (!(w > 0 && h > 0) || maxX < edge || maxY < minY) return false;
       var text = document.querySelector('#herorow .big'), keep = null;
       if (text) { var t = text.getBoundingClientRect(); keep = { l: t.left - box.left - 14, r: t.right - box.left + 14, t: t.top - box.top - 14, b: t.bottom - box.top + 14 }; }
       for (var n = 0; n < 24; n++) {
@@ -114,8 +114,19 @@
         if (onText || sameSpot) continue;
         image.style.left = Math.round(x) + 'px'; image.style.top = Math.round(y) + 'px';
         lastSpot = { x: x, y: y }; record.spot = [Math.round(x), Math.round(y)];
-        return;
+        return true;
       }
+      return false;
+    };
+    /** A new size and a new place each time (Alaa, 11 Nov: "the sketch can also vary in size ... it can be up tp 150%
+        bigger ... so yea let us play"): from its own size up to GROW times it, drawn at random; back to its own size
+        where the bigger one would not fit whole on the screen. */
+    var GROW = 1.5;
+    var place = function (image) {
+      var size = 1 + Math.random() * (GROW - 1);
+      image.style.setProperty('--k', size.toFixed(3));
+      if (!settleIn(image)) { size = 1; image.style.setProperty('--k', '1'); settleIn(image); }
+      record.size = Math.round(size * 100) / 100;
     };
     var wait = function () {
       var should = started && inSight && !document.hidden && !reduced.matches;
@@ -281,5 +292,30 @@
       }).catch(function (error) { keeper.state = 'failed'; keeper.error = String(error); });
     };
     if (document.readyState === 'complete') register(); else addEventListener('load', register);
+  }
+
+  /* 10. A readout for checking the loading by eye (Alaa, 11 Nov: "is it really loading or is it just playing ?"): add
+     ?loading to the address. Bottom left, above everything: the number on screen against the bytes that have truly
+     arrived, then the pictures as they come, and how many were answered by the kept copies. For review only. */
+  if (new URLSearchParams(location.search).has('loading')) {
+    var readout = document.createElement('pre');
+    readout.setAttribute('aria-hidden', 'true');
+    readout.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:95;margin:0;padding:8px 10px;background:rgba(8,7,6,.86);color:#e2ded4;font:11px/1.5 Consolas,Menlo,monospace;pointer-events:none;white-space:pre;max-width:92vw;overflow:hidden';
+    document.body.appendChild(readout);
+    var kb = function (bytes) { return Math.round(bytes / 1024) + ' KB'; };
+    setInterval(function () {
+      var count = window.__count, lines = [];
+      if (count) {
+        lines.push('number on screen   ' + Math.floor(count.shown * 100) + ' %');
+        lines.push('truly arrived      ' + (count.total ? Math.floor(count.done / count.total * 100) : 0) + ' %  (' + kb(count.done) + ' of ' + kb(count.total) + ', ' + count.arrivals.length + ' files, fonts ' + (count.fonts ? 'in' : 'not yet') + ')');
+        if (count.arrivals.length) lines.push('last file in       ' + count.arrivals[count.arrivals.length - 1][1] + ' at ' + (count.arrivals[count.arrivals.length - 1][0] / 1000).toFixed(1) + ' s');
+        if (count.queue) lines.push('pictures           ' + count.queue.done + ' arrived, ' + count.queue.waiting + ' waiting');
+      }
+      var pictures = performance.getEntriesByType('resource').filter(function (entry) { return /\/assets\/.+\.(webp|jpe?g)$/.test(entry.name.split('?')[0]); });
+      var kept = pictures.filter(function (entry) { return entry.workerStart > 0 && !entry.transferSize; }).length;
+      lines.push('from the network   ' + kb(pictures.reduce(function (sum, entry) { return sum + (entry.transferSize || 0); }, 0)) + ' in ' + (pictures.length - kept) + ' pictures');
+      lines.push('from kept copies   ' + kept + ' pictures');
+      readout.textContent = lines.join('\n');
+    }, 250);
   }
 })();

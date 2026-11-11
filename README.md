@@ -40,3 +40,6 @@ Built on branch johnny-notes at Alaa's word; the build writes the new markup onl
 - **Paintings:** one per screen, the same place for each (71.9 % of the screen wide, 76.8 % high, top 15 %), an ink shadow that comes with the wipe, the page gliding on to the painting it was heading for (landing.js section 6); the menu stays while a painting is on screen.
 - **Loading:** count.js asks for the pictures one after another in the page's order, two at a time, from the moment the count is complete; sw.js keeps the site's pictures in the browser (kept copy first for pictures, network first for the page and scripts). The plan and the budgets: ../LOADING_PLAN_2026-11-11.md.
 - **Also:** the footer's email, a description and a preview picture for shared links, the fish as the tab's icon, a heading for screen readers, darker captions, two buttons that lead out of the sketchbook on touch screens.
+
+## Round 3 (11 November 2026, after Alaa's test online)
+The line under the name is "Visual Artist", bold. The menu is Paintings, Exhibitions, Sketches, Contact; Facebook is linked; the signature in the menu is 30 px high. The footer is centred: his name (a link to the top), two lines, the menu with Top. Each drawing comes at 1 to 1.5 times its size (landing.js, GROW). ?loading on the address shows a readout of what has truly arrived (landing.js section 10).

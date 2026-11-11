@@ -169,3 +169,16 @@ footer .mail{border-bottom:1px solid currentColor}
 .vh{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 
 @media (prefers-reduced-motion:reduce){.wall .work .fr,.about figure img,.about .about-text>*{transition:none!important}}
+
+/* Round 3 (Alaa, 11 Nov 2026, after testing online). */
+/* "When I scroll and the name in the menu appears it should be 50 % bigger": 30 px high (was 20); the menu keeps its height. */
+.nav .brand img{height:30px;margin-block:-5px}
+/* "The sketch can also vary in size ... up to 150 %": --k is drawn by landing.js with each new place (1 to 1.5). */
+.hero-sk .dr{width:calc(var(--fw) * var(--k, 1))}
+/* build: footer centred */
+/* "Johnny name at the end should take you to the top, centered"; the two lines, centred; the menu under them. */
+footer .ft{display:flex;flex-direction:column;align-items:center;text-align:center;gap:1.6rem}
+footer .ft .ft-name{display:block}
+footer .ft .ft-name img{display:block;height:44px;width:auto}
+footer .ft p{margin:0;max-width:none;line-height:1.8;color:var(--graphite)}
+footer .ft .ft-links{flex-wrap:wrap;justify-content:center;gap:.7rem 1.6rem}
