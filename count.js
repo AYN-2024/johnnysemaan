@@ -9,7 +9,19 @@
 (function () {
   var loader = document.getElementById('loader'), text = loader && loader.querySelector('.pct');
   var query = new URLSearchParams(location.search), INFINITY = query.has('inf');
-  var MIN_FILL = Number(query.get('fill')) > 0 ? Number(query.get('fill')) : 2000;
+  /* The intro plays once per session (Alaa, 11 Nov: "this loader is one time per session .. and a play intro or skip
+     intro should be there for sure"). opening.js writes 'seen' when it has played or been skipped, 'play' when the
+     visitor asks for it again. Read here, at the first paint, so the page knows before anything shows: on a later visit
+     the number does not hold for its 2 s, and there is no skip button. */
+  var memory = null;
+  try { memory = sessionStorage.getItem('js-intro'); } catch (error) { memory = null; }
+  var SEEN = memory === 'seen' && !query.has('stay');
+  document.documentElement.setAttribute('data-intro', SEEN ? 'seen' : 'first');
+  var MIN_FILL = Number(query.get('fill')) > 0 ? Number(query.get('fill')) : SEEN ? 400 : 2000;
+  if (!SEEN) setTimeout(function () {   // the button comes after this script in the page: looked up when it is needed
+    var skip = document.getElementById('skip');
+    if (skip && document.body.getAttribute('data-phase') === 'opening') skip.classList.add('on');
+  }, 1200);
   var GIVE_UP = 30000;   // ms: past this the light starts anyway (the number keeps telling the truth until it fades)
   var FOLLOW = 120;      // ms: how closely the shown number follows the true one
   var FONT_WAIT = 6000;  // ms: the count stops waiting for the fonts' stylesheet after this (blocked or failed)
@@ -47,8 +59,45 @@
   // What the first screen does not show waits for the count (the build marks it): pictures further down
   // (data-defer-src) and the statement's Arabic face (data-defer-href). Also once the page is fully read, for anything
   // the reader had not reached when the count completed. Any hero drawing still waiting in the chain goes too.
+  /* The pictures come one after another, in the order the page shows them, two at a time (Alaa, 11 Nov: "we need to
+     plan how and when and what to load .. every second the user spend on the site should serve for loading the
+     paintings"): from the moment the count is complete, through the intro and while the visitor reads, the hero's other
+     drawings, then the paintings from the first to the last, then the exhibition. All at once they shared the line and
+     the first painting arrived with the last. A picture the visitor is about to reach jumps the queue. What can wait
+     for all of them (the sketchbook's pages) asks window.__afterPaintings. */
+  var queue = [], lanes = 0, LANES = 2, begun = false, afterQueue = [];
+  state.queue = { waiting: 0, done: 0 };
+  function ask(image) {
+    var address = image.getAttribute('data-defer-src');
+    if (!address) return;
+    image.removeAttribute('data-defer-src'); lanes++;
+    // A picture that neither arrives nor fails (a line that has gone quiet) gives its lane back after 20 s; it may still arrive.
+    var finished = false, patience = 0;
+    var done = function () { if (finished) return; finished = true; clearTimeout(patience); image.removeEventListener('load', done); image.removeEventListener('error', done); lanes--; state.queue.done++; pump(); };
+    patience = setTimeout(done, 20000);
+    image.addEventListener('load', done); image.addEventListener('error', done);
+    image.loading = 'eager';   // the study marks the later paintings "lazy": they would wait for the visitor and hold the queue (measured: stalled at 8 of 21)
+    image.src = address;
+  }
+  function pump() {
+    while (lanes < LANES && queue.length) ask(queue.shift());
+    state.queue.waiting = queue.length;
+    if (begun && !queue.length && lanes <= 0 && afterQueue.length) afterQueue.splice(0).forEach(function (job) { try { job(); } catch (error) { console.warn('count: after the pictures', error); } });
+  }
+  window.__afterPaintings = function (job) { if (begun && !queue.length && lanes <= 0) job(); else afterQueue.push(job); };
+  var near = 'IntersectionObserver' in window ? new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) { if (entry.isIntersecting) { near.unobserve(entry.target); ask(entry.target); } });
+  }, { rootMargin: '150% 0px' }) : null;
   function releaseDeferred() {
-    Array.prototype.forEach.call(document.querySelectorAll('img[data-defer-src]'), function (image) { image.src = image.getAttribute('data-defer-src'); image.removeAttribute('data-defer-src'); });
+    Array.prototype.forEach.call(document.querySelectorAll('img[data-defer-src]'), function (image) {
+      if (image.__queued) return;
+      image.__queued = true; queue.push(image);
+      if (near && !(image.closest && image.closest('.hero-sk'))) near.observe(image);   // the hero's drawings are already in view: they keep their turn
+    });
+    // Before the page has been read through there may be pictures still to come: the queue is only "begun" (so that
+    // what waits for all of them can run) once the whole page is here. release() calls this again at that moment.
+    if (document.readyState !== 'loading') begun = true;
+    pump();
     Array.prototype.forEach.call(document.querySelectorAll('link[data-defer-href]'), function (link) { link.href = link.getAttribute('data-defer-href'); link.removeAttribute('data-defer-href'); });
     Array.prototype.forEach.call(document.querySelectorAll('img[data-chain-src]'), function (image) { image.src = image.getAttribute('data-chain-src'); image.removeAttribute('data-chain-src'); });
   }

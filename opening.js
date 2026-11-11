@@ -11,7 +11,21 @@ const STAY = QUERY.has('stay') ? (QUERY.get('stay') === 'loop' ? 'loop' : 'hold'
 const LOOP_PAUSE = 1200;
 const INTRO = Number(QUERY.get('intro')) > 0 ? Number(QUERY.get('intro')) : 4500;   // 2.6 s until 5 Nov; Alaa: "a bit slower, 4.5 sec"
 const REST = 400;   // ms at 100 % before the light starts writing
-const FLOOD = 3300, SETTLE = 450;
+/* A trial beside the locked swim (Johnny, 6 Nov 2026: the fish should move "more naturally, like a fish, instead of
+   looking like a rocket"): ?swim=calm. Today the light crosses the screen at about 3.4 of its own body lengths a second,
+   up to 5.3 in a burst; a cruising fish does 1 to 2. Calm: a longer flood (so a slower swim), a longer body, four deeper
+   bursts with real glides between them, a slower and wider tail, a lazier S. Without the flag nothing changes. */
+const CALM = QUERY.get('swim') === 'calm';
+const SWIM = CALM ? { BODY: .2, BEAT_HZ: 2.4, BURSTS: 4, BURST_DEPTH: .7, TAIL_SWING: .05, BEND: .42 } : null;
+const FLOOD = CALM ? 5200 : 3300, SETTLE = 450;
+/* The intro plays once per session, can be skipped, and can be asked for again (Alaa, 11 Nov: "this loader is one time
+   per session it is supposed to be a buffer so the website loads and a play intro or skip intro should be there for
+   sure"). sessionStorage 'js-intro': 'seen' once it has played or been skipped; 'play' when the visitor asks for it
+   again. On a later visit in the same session: the black, the number while the page really loads, then the black lifts
+   on the site's curve (0.6 s). count.js reads the same value at the first paint. */
+const memory = { get() { try { return sessionStorage.getItem('js-intro'); } catch { return null; } }, set(value) { try { sessionStorage.setItem('js-intro', value); } catch { /* private mode: the intro simply plays each time */ } } };
+const SEEN = memory.get() === 'seen' && !QUERY.has('stay');
+if (memory.get() === 'play') memory.set('playing');
 const LIGHT_SOFTNESS = 0.25, DARK = '#080706', PAPER = '#ebeae5';   // the study's paper
 const clamp = (n, a = 0, b = 1) => Math.max(a, Math.min(b, n));
 const smooth = n => { const x = clamp(n); return x * x * (3 - 2 * x); };
@@ -20,7 +34,8 @@ export function startOpening() {
   const $ = id => document.getElementById(id);
   const stage = $('stage'), front = $('still-front'), loader = $('loader');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-  let surface = $('surface'), engine = null, ready = false, running = false, completed = false, counted = false;
+  let surface = $('surface'), engine = null, ready = false, running = false, completed = false, counted = false, lifting = false;
+  const skipButton = $('skip');
   let elapsed = 0, anchor = 0, last = 0, raf = 0, phase = 'count', intro = 'none';
   let floodStart = Infinity, floodEnd = Infinity, duration = Infinity, lastSize = [innerWidth, innerHeight];
   const box = { frames: 0, floodFrames: 0, worst: 0, failures: [], startedAt: 0, count: window.__count || null };   // the black box
@@ -63,7 +78,7 @@ export function startOpening() {
    */
   function startFlood(at) {
     floodStart = at; floodEnd = at + FLOOD; duration = floodEnd + SETTLE;
-    hideLoader();
+    hideLoader(); skipButton?.classList.remove('on');   // the page is arriving: nothing left to skip
     document.body.dataset.phase = 'flood'; document.documentElement.dataset.phase = 'flood';
     heroStart();
   }
@@ -118,9 +133,39 @@ export function startOpening() {
      it does then reaches the screen; Chrome shows its last frame of this page until the next page's first paint. What
      the site controls is that its own first paint is black at once (the build: black in the first bytes, nothing
      holding the first paint). */
+  /**
+   * The black lifts at once, on the site's curve (0.6 s): the visitor skipped the intro, or has seen it in this session.
+   * The stage itself holds the black while the page turns to paper under it and the hero starts, then fades; the strip
+   * and the scrollbar clear in step. Nothing pops.
+   */
+  function lift(reason) {
+    if (completed || lifting) return;
+    lifting = true; running = false; cancelAnimationFrame(raf);
+    stage.style.background = DARK;
+    hideLoader(); skipButton?.classList.remove('on');
+    document.body.dataset.phase = 'flood'; document.documentElement.dataset.phase = 'flood';
+    heroStart();
+    if (reduced.matches) { complete(reason); return; }
+    stage.style.transition = 'opacity .6s cubic-bezier(.16,1,.3,1)';
+    void stage.offsetWidth; stage.style.opacity = '0';
+    animateStrip(1, 600, () => {});
+    setTimeout(() => complete(reason), 620);
+  }
+  /** "Play intro": shown on the landing when the intro did not play on this visit; it plays on the page's next load. */
+  function offerIntro() {
+    const hero = document.querySelector('.hero');
+    if (!hero || hero.querySelector('.intro-play')) return;
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'intro-play lbl'; button.textContent = 'Play intro'; button.setAttribute('data-hover', '');
+    button.addEventListener('click', () => { memory.set('play'); location.assign(location.pathname + location.search); });
+    hero.appendChild(button);
+    requestAnimationFrame(() => requestAnimationFrame(() => button.classList.add('in')));
+  }
   function complete(reason = 'complete') {
     if (completed) return;
     completed = true; running = false; cancelAnimationFrame(raf);
+    if (reason === 'complete' || reason === 'skipped' || reason === 'seen') memory.set('seen');
+    if (reason === 'skipped' || reason === 'seen') offerIntro();
     try { engine?.destroy(); } catch (error) { fail('destroy', error); }
     engine = null; phase = 'page'; if (Number.isFinite(duration)) elapsed = duration;
     unlockScroll();
@@ -185,7 +230,7 @@ export function startOpening() {
     raf = requestAnimationFrame(tick);
   }
   function resume() {
-    if (!ready || running || completed || document.hidden) return;
+    if (!ready || running || completed || lifting || document.hidden) return;
     running = true; last = performance.now(); anchor = last - elapsed; raf = requestAnimationFrame(tick);
   }
   function onVisibility() { if (document.hidden) { running = false; cancelAnimationFrame(raf); } else resume(); }
@@ -229,7 +274,7 @@ export function startOpening() {
     const fish = $('light-fish').getBoundingClientRect();
     const name = (document.querySelector('.hero .name') || $('light-name')).getBoundingClientRect();
     const flood = { from: [fish.left + fish.width / 2, fish.top + fish.height / 2], to: [name.left + name.width * .04, name.top + name.height * .5] };
-    return { frontCanvas, backCanvas, w, h, dpr, glow: LIGHT_SOFTNESS, flood, menu: null };
+    return { frontCanvas, backCanvas, w, h, dpr, glow: LIGHT_SOFTNESS, flood, menu: null, swim: SWIM };
   }
   async function prepare() {
     if (completed) return;
@@ -239,12 +284,13 @@ export function startOpening() {
     else {
       try {
         const input = await textures();
+        if (completed || lifting) return;   // skipped while the textures were being made: no engine is built for nothing
         const replacement = document.createElement('canvas'); replacement.id = 'surface'; replacement.setAttribute('aria-hidden', 'true');
         surface.replaceWith(replacement); surface = replacement;
         engine = window.makePigment(surface, input); intro = 'pigment';
       } catch (error) { fail('engine', error); engine = null; intro = 'native'; }
     }
-    if (completed) return;
+    if (completed || lifting) return;
     ready = true; resume();   // the first frame waits for the count (tick)
   }
 
@@ -255,7 +301,19 @@ export function startOpening() {
   signal();
   if (reduced.matches) queueMicrotask(() => complete('reduced-motion'));
   else if (location.hash && !STAY) queueMicrotask(() => complete('hash'));   // a deep link goes straight to its section
-  else { lockScroll(); whenViewportReady(prepare); }
+  else if (SEEN) {
+    // Seen in this session: no writing, no flood. The black and the number while the page loads, then the lift.
+    lockScroll();
+    const whenCounted = () => { if (completed || lifting) return; if (countDone()) lift('seen'); else requestAnimationFrame(whenCounted); };
+    requestAnimationFrame(whenCounted);
+  }
+  else {
+    lockScroll(); whenViewportReady(prepare);
+    // Skip: the button (the build puts it in the page, count.js shows it after 1.2 s), or Escape.
+    const skip = () => { if (!completed && phase !== 'flood' && phase !== 'settle') lift('skipped'); };
+    skipButton?.addEventListener('click', skip);
+    addEventListener('keydown', event => { if (event.key === 'Escape') skip(); });
+  }
   return { finish: (reason = 'skipped') => complete(reason) };
 }
 

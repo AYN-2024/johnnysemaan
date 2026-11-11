@@ -40,7 +40,9 @@
     // fish leaves behind it. The swim ends at SWIM_END of the flood; what it poured lingers after. The black stays dark
     // water: the light is a window in it onto the page and Johnny's drawings, the water stays a little clearer where it
     // has been, and all of it clears after the swim (the light felt like smoke, apart from the sketches).
-    const SWIM_END = .72, BODY = .16, BEAT_HZ = 3.2, BURSTS = 3, BURST_DEPTH = .55, TAIL_SWING = .03;
+    // options.swim may replace any of these for a trial (opening.js, ?swim=calm: Johnny, 6 Nov 2026, "more like a fish,
+    // not a rocket"); without it they are the values frame 3 was locked with.
+    const { SWIM_END, BODY, BEAT_HZ, BURSTS, BURST_DEPTH, TAIL_SWING, BEND } = Object.assign({ SWIM_END: .72, BODY: .16, BEAT_HZ: 3.2, BURSTS: 3, BURST_DEPTH: .55, TAIL_SWING: .03, BEND: .28 }, options.swim || {});
     let swimPhase = 0;
 
     // Verbatim Liquid Light shader core is inserted here at build time.
@@ -338,7 +340,7 @@ void main() {
     /** The swim line at u in [0,1]: an S-curve from the fish to the sketch, in short-side units with y up. */
     function swimPoint(u) {
       const ax=flood.from[0]/shortSide, ay=(height-flood.from[1])/shortSide;
-      const bx=flood.to[0]/shortSide, by=(height-flood.to[1])/shortSide, dx=bx-ax, dy=by-ay, bend=.28;
+      const bx=flood.to[0]/shortSide, by=(height-flood.to[1])/shortSide, dx=bx-ax, dy=by-ay, bend=BEND;
       const p1=[ax+dx/3-dy*bend,ay+dy/3+dx*bend], p2=[ax+dx*2/3+dy*bend,ay+dy*2/3-dx*bend], v=1-u;
       return [v*v*v*ax+3*v*v*u*p1[0]+3*v*u*u*p2[0]+u*u*u*bx, v*v*v*ay+3*v*v*u*p1[1]+3*v*u*u*p2[1]+u*u*u*by];
     }

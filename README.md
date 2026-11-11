@@ -31,3 +31,12 @@ The name and the fish are the refined drawings of 5 November 2026 (`../identity/
 ## Tunables
 - `opening.js` → `INTRO`, `MIN_FILL`, `REST`, `FLOOD`, `LIGHT_SOFTNESS` (0.25), `HERO_ASSETS`.
 - The study's own tunables are in its stylesheet and script (`../Immersive/index.html`).
+
+## Johnny's notes and round 2 (11 November 2026)
+Built on branch johnny-notes at Alaa's word; the build writes the new markup only when landing.css carries its markers (build: one drawing at a time, one painting per screen, round 2, contact).
+- **Landing:** the name is half the screen, the square a third of its side, behind the end of the name (?square=left: top left). One drawing at a time, five small files (assets/dr1 to dr5, cut by ../tools/cut-pictures.html), each 3, 6 or 9 s at a place drawn at random (landing.js section 5).
+- **The intro:** once per session (sessionStorage js-intro), Skip intro on the black, Play intro on the landing (opening.js lift / offerIntro; count.js reads the same value at the first paint). ?swim=calm is a calmer swim to compare.
+- **The artist:** a section after the landing: assets/johnny-portrait.webp, his name in type, the exhibitions from content.json.
+- **Paintings:** one per screen, the same place for each (71.9 % of the screen wide, 76.8 % high, top 15 %), an ink shadow that comes with the wipe, the page gliding on to the painting it was heading for (landing.js section 6); the menu stays while a painting is on screen.
+- **Loading:** count.js asks for the pictures one after another in the page's order, two at a time, from the moment the count is complete; sw.js keeps the site's pictures in the browser (kept copy first for pictures, network first for the page and scripts). The plan and the budgets: ../LOADING_PLAN_2026-11-11.md.
+- **Also:** the footer's email, a description and a preview picture for shared links, the fish as the tab's icon, a heading for screen readers, darker captions, two buttons that lead out of the sketchbook on touch screens.

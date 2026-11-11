@@ -46,5 +46,126 @@
 .hero-row .pin{width:.8em;height:.8em;vertical-align:-.05em;margin-left:.3em;overflow:visible}
 
 @media (prefers-reduced-motion:reduce){
-  .nav .brand,.nav.has-brand .brand,.nav .burger i,.menu-panel,.menu-panel.open,.menu-panel a{transition:none!important}
+  .nav .brand,.nav.has-brand .brand,.nav .burger i,.menu-panel,.menu-panel.open,.menu-panel a,.hero-sk .dr,.hero-sk .dr.on{transition:none!important}
 }
+
+/* Johnny's notes on the landing (6 Nov 2026, from Alaa's meeting with him; Alaa, 11 Nov: "let us apply them all").
+   TRIAL on branch johnny-notes. One measure, N, the big name's width; every size below is a share of it, so the
+   composition is the same on every big screen. Phones keep the study's own name and square (the notes are about the
+   big screen) and get the one drawing. */
+@media (min-width:761px){
+  .hero{--N:50vw}                                  /* "the name stays, about 50 % of the screen's width" (was 81 % at 1280, 54 % at 1920) */
+  .hero .wrap.hero-inner{width:100%}               /* half the screen means from the page margin to the middle, on every screen */
+  .hero .name{width:var(--N)}
+  /* "The square: a third of its current size": a third of its side. Today 420 px beside a 1040 px name, so a third is
+     140 px at a 1280 screen = 0.21875 N. Its shape stays (1.1 wide for 1 high). First place to try: "near the middle of
+     the screen, on the name's side": centred on the middle of the screen, behind the end of the name, as today. */
+  .hero .block{--side:calc(var(--N) * .21875);width:var(--side);left:calc(50vw - var(--side) / 2 - var(--gut-l));top:calc(var(--side) * -.07)}   /* its box starts at the name's left edge, one gutter in */
+  /* Second place to try: "top left" (review flag ?square=left, landing.js): on the page margin, behind the start of the name. */
+  .square-left .hero .block{left:0}
+}
+
+/* build: one drawing at a time */
+/* build: round 2 */
+/* Johnny: "only one sketch", "the size of the square today (before it shrinks)". Alaa, 11 Nov: "we will need them all to
+   stay but to make sure we have only 1 shown .. the rest will be shown randomly each one will remain for 3 or 6 or 9
+   secs", then: "why the sketch is appearing at the same place ?? let it show randomly": landing.js gives every drawing a
+   new place, drawn at random, each time it comes (below the menu, whole on the screen, never over the line under the
+   name). The place written here is only where a drawing sits before the script has placed it, or without script.
+   The five drawings are their own small files now (tools/cut-pictures.html; Alaa on the critique's finding 5: "cut it"):
+   730 KB in all against 1.42 MB for the three pages, and only the first belongs to the count. --ia: a file's width for 1
+   of height. Size: as wide as today's square (0.656 N), never more than 55 % of the screen's height. */
+/* --sv: one hundredth of the screen's height: the small one (svh) where the browser knows it, else vh. */
+.hero-sk,.wall{--sv:1vh}
+@supports (height:1svh){.hero-sk,.wall{--sv:1svh}}
+.hero-sk{--sw:min(calc(var(--N) * .656), calc(55 * var(--sv)));--sh:calc(var(--sw) / 1.25);--sl:38vw;--st:calc(100% - var(--sh))}
+@media (max-width:760px){.hero-sk{--sw:70vw;--sl:22vw;--st:64vh}}
+.hero-sk .dr{
+  --fw:min(var(--sw), calc(var(--sh) * var(--ia)));
+  width:var(--fw);height:auto;
+  left:calc(var(--sl) + (var(--sw) - var(--fw)) / 2);
+  top:calc(var(--st) + var(--sh) - var(--fw) / var(--ia));
+  /* Only one shows. It comes and goes the way the study brings its drawings in (1.6 s, power2.out), both in step.
+     filter, not opacity: the study's own intro leaves its opacity on each picture. */
+  filter:contrast(1.05) opacity(0);visibility:hidden;
+  transition:filter 1.6s cubic-bezier(.215,.61,.355,1),visibility 0s 1.6s;
+}
+.hero-sk .dr.on{filter:contrast(1.05) opacity(1);visibility:visible;transition:filter 1.6s cubic-bezier(.215,.61,.355,1),visibility 0s}
+.hero-sk .d1{--ia:1.1525}   /* the standing figures */
+.hero-sk .d2{--ia:1.3126}   /* the tangle in its frame */
+.hero-sk .d3{--ia:.7513}    /* the couple, the bird, the dog */
+.hero-sk .d4{--ia:1.2541}   /* the row of figures */
+.hero-sk .d5{--ia:1.3093}   /* the small group */
+
+/* build: one painting per screen */
+/* Johnny's note (Alaa, 11 Nov 2026, with a screenshot of painting 14 on Alaa's screen): "only 1 painting per screen ..
+   the 1 painting is shown exactly like this .. every painting should be in this place according to the menu and all
+   other elements". Read from the screenshot and the study's own layout at that screen (1142 x 523 CSS px: the browser
+   at 110 % on a 150 % display): the painting centred, 63.6 % of the screen wide and 68 % of it high, its top 22 % down
+   the screen, the caption under it. Then Alaa: "we can make the paintings 13 % bigger": 71.9 % wide, 76.8 % high; the
+   top moves up to 15 % so the caption stays on the screen (the height also gives way to the caption on a very low
+   screen). Every painting sits whole in that same box, so the top line never moves from one painting to the next.
+   --ar (the picture's width for 1 of height) is written on each work by the build. The pictures are only sized: never
+   cut, never changed. (A measuring tape stood on the left for a few hours; Alaa: "the scale is irrelevant .. the info is
+   already on the description of the painting": removed.) */
+.works>.wrap{width:100%;padding-left:0;padding-right:0}
+.works-head{width:min(1320px,100%);margin-inline:auto;padding-left:var(--gut-l);padding-right:var(--gut-r)}
+.wall{display:block}
+.wall .work{--top:calc(15 * var(--sv));--bh:min(calc(76.8 * var(--sv)), calc(85 * var(--sv) - 2.6rem));--w:min(71.9vw, calc(var(--bh) * var(--ar)));--h:calc(var(--w) / var(--ar));
+  height:calc(100 * var(--sv));margin:0;padding-top:var(--top);display:flex;justify-content:center;align-items:flex-start;overflow:hidden;pointer-events:none}
+.wall .work figure{pointer-events:auto}   /* the empty paper beside a painting is not the painting */
+.wall .work .fr{width:var(--w);margin-inline:auto}
+.wall .work img{display:block;width:var(--w);height:var(--h)}
+.wall .work figcaption{color:var(--graphite)}   /* was the study's lighter grey: 3.6 to 1 on the paper, too faint for small text (the critique, finding 9) */
+/* "I need a shadow .. let the painting pop .. a grey from Johnny's blacks or a black, not grey" (Alaa, 11 Nov): the
+   site's ink (#1a1917, the black of his name; the sketchbook's page already casts it), close under the canvas and wider
+   below it, as from a light above. It comes with the painting: in step with the wipe that uncovers it (0.95 s after
+   the colour has covered it, the study's own timing), set by .seen (landing.js). Outside the picture: no pixel of it. */
+.wall .work .fr{box-shadow:0 0 0 0 rgba(26,25,23,0),0 0 0 0 rgba(26,25,23,0);transition:box-shadow .95s cubic-bezier(.65,0,.35,1) .5s}
+.wall .work.seen .fr{box-shadow:0 2px 5px 0 rgba(26,25,23,.4),0 16px 34px -8px rgba(26,25,23,.55)}
+/* Phones (not in the screenshot, my reading): the painting as wide as the page allows, in the middle of the space under the menu. */
+@media (max-width:760px){
+  .wall .work{--w:min(calc(100vw - var(--gut-l) - var(--gut-r)), calc(var(--bh) * var(--ar)));padding-top:var(--nav-h,52px);align-items:center}
+  .wall .work figcaption{flex-wrap:wrap}
+  .wall .work figcaption span{white-space:normal}
+}
+
+/* build: contact johnny.semaan80@gmail.com */
+footer .mail{border-bottom:1px solid currentColor}
+
+/* The artist (frame 5; Alaa, 6 Nov: "frame 5 should be this", a portrait; 11 Nov, with the photograph: "use Johnny
+   leaning on the wall .. take a small part of the wall let it be a good frame"). After the landing, before the
+   statement. The photograph Alaa gave is 850 px wide; the cut is 360 x 480 px and is never shown larger than that.
+   Beside it: his name set in type (it was typeset nowhere on the page), the landing's line, and his exhibitions as the
+   project's content file lists them. It comes in on the site's curve when it is reached (.seen, landing.js): the
+   photograph uncovered from the wall's side, the lines after it, one by one. */
+.about{position:relative;background:var(--paper);padding-block:8rem 7rem;border-top:1px solid var(--line)}
+.about-inner{display:grid;grid-template-columns:minmax(0,360px) minmax(0,1fr);gap:clamp(2rem,7vw,7rem);align-items:end}
+.about figure{margin:0;width:min(360px,100%)}
+.about figure img{display:block;width:100%;height:auto;clip-path:inset(0 100% 0 0);transition:clip-path .9s cubic-bezier(.16,1,.3,1)}
+.about.seen figure img{clip-path:inset(0 0 0 0)}
+.about h2{margin:.5rem 0 1.2rem}
+.about .big{margin:0;font-size:clamp(1.2rem,2.4vw,1.7rem);letter-spacing:-.01em;font-variation-settings:"wdth" 85,"wght" 300}   /* the landing's line, the same type */
+.about .big b{font-weight:600;font-variation-settings:"wdth" 85,"wght" 600}
+.about .shows{list-style:none;margin:2.2rem 0 0;padding:0;border-top:1px solid var(--line);max-width:34rem}
+.about .shows li{display:flex;gap:1.4rem;padding:.55rem 0;border-bottom:1px solid var(--line);font-size:.9rem}
+.about .shows li span:first-child{flex:0 0 3.2rem;color:var(--mute);font-variant-numeric:tabular-nums}
+.about .about-text>*{opacity:0;transform:translateY(12px);transition:opacity .6s cubic-bezier(.16,1,.3,1),transform .6s cubic-bezier(.16,1,.3,1)}
+.about.seen .about-text>*{opacity:1;transform:none}
+.about.seen .about-text>:nth-child(1){transition-delay:.25s}.about.seen .about-text>:nth-child(2){transition-delay:.33s}
+.about.seen .about-text>:nth-child(3){transition-delay:.41s}.about.seen .about-text>:nth-child(4){transition-delay:.49s}
+@media (max-width:760px){.about{padding-block:5rem 4rem}.about-inner{grid-template-columns:1fr;align-items:start}.about figure{width:min(300px,78vw)}}
+
+/* The sketchbook on a touch screen (the critique, finding 7; Alaa: "we need to make a solution for this .. maybe make a
+   special scrolling button here .. like skip .. or continue"). The page you smudge takes every touch, so a thumb that
+   lands on it cannot scroll. Two small buttons on the page itself, only where the pointer is a finger: back up to the
+   paintings, on to the exhibition. The smudge is untouched. */
+.sk-leave{display:none}
+@media (pointer:coarse){
+  .sk-leave{display:block;position:absolute;right:10px;z-index:3;padding:.55rem .8rem;background:var(--paper);border:1px solid var(--line);border-radius:999px;color:var(--ink);line-height:1;touch-action:manipulation}
+  .sk-leave.up{top:10px}.sk-leave.down{bottom:10px}
+}
+/* The page's heading for readers that cannot see the written name (the critique, finding 9). */
+.vh{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+
+@media (prefers-reduced-motion:reduce){.wall .work .fr,.about figure img,.about .about-text>*{transition:none!important}}
